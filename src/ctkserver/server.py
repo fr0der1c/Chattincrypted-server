@@ -10,7 +10,6 @@ def action_user_register(parameters):
     cursor.execute(query, (parameters["username"],))
     # If found entry, tell client that this username is already in use.
     if cursor.fetchall():
-        print("username_already_in_use")
         return JSONS["username_already_in_use"]
     # If all parameters are met, add new user. Else tell client incomplete parameters.
     if "mail-address" in parameters and "username" in parameters and "nickname" in parameters and \
@@ -26,7 +25,19 @@ def action_user_register(parameters):
 
 
 def action_user_login(parameters):
-    pass
+    if "username" in parameters and "password" in parameters:
+        query = "SELECT password FROM ctk_users WHERE username=%s"
+        cursor.execute(query, (parameters["username"],))
+        fetch_result = cursor.fetchall()
+        if fetch_result:
+            if fetch_result[0][0] == parameters["password"]:
+                return JSONS["successfully-login"]
+            else:
+                return JSONS["incorrect-password"]
+        else:
+            return JSONS["no-such-user"]
+    else:
+        return JSONS['incomplete_parameters']
 
 
 # Function name: do_action
