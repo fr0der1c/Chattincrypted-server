@@ -1,6 +1,6 @@
 class Config(object):
     HOST = "127.0.0.1"
-    PORT = 50007
+    PORT = 50008
     BUFSIZE = 1024
     ENCODE = "utf8"
     MYSQL_CONFIG = {
