@@ -16,11 +16,11 @@ tcpCliSock.connect(ADDR)
 data_json = {
     "action": "user-register",
     "parameters": {
-        "mail-address": "frederic.t.chan@gmail.com",
-        "username": "frederic",
-        "nickname": "frederic",
-        "password": "pass_frederic",
-        "fingerprint": "FINGERPRINT"
+        "mail-address": "vencent.stevens@gmail.com",
+        "username": "lavender",
+        "nickname": "lavender",
+        "password": "pass_lavender",
+        "fingerprint": "FINGERPRINT1"
     }
 }
 data = json.dumps(data_json)

@@ -17,7 +17,7 @@ data_json = {
     "action": "user-login",
     "parameters": {
         "username": "frederic",
-        "password": "pass_frederic1",
+        "password": "pass_frederic",
     }
 }
 data = json.dumps(data_json)

@@ -6,6 +6,8 @@ JSONS = {
     "incorrect-password": {"status": "failed", "description": "Incorrect password"},
     "bye-bye": {"status": "success", "description": "Bye-bye"},
     "unexpected_behaviour": {"status": "failed", "description": "Unexpected behaviour"},
+    "database_error": {"status": "failed", "description": "Database error"},
     "successfully_registered": {"status": "success", "description": "Successfully registered"},
     "successfully-login": {"status": "success", "description": "Login successfully"},
+    "successfully-updated-info": {"status": "success", "description": "Successfully updated info"},
 }
