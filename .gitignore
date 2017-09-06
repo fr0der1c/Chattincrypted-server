@@ -1,6 +1,7 @@
 # Other
-/src/config/development.py
-/src/config/production.py
+.idea/
+/src/Chattincrypted-server/config/development.py
+/src/Chattincrypted-server/config/production.py
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Python template
