@@ -76,6 +76,7 @@ def action_update_personal_info(parameters, username=None):
 
 
 def action_send_message(parameters, username=None):
+    print("action_send_message:%s" % username)
     if "type" in parameters and "time" in parameters and "receiver" in parameters:
         if parameters["type"] in CONFIG.AVAILABLE_MESSAGE_TYPE:
             message = {
@@ -116,6 +117,7 @@ def _offline_user_clean():
 # Description: Select an specific action to do
 # Return value: a dict to return to client
 def do_action(action, parameters, username=None):
+    print("do_action username:%s"%username)
     actions = {
         "user-register": action_user_register,
         "user-login": action_user_login,
