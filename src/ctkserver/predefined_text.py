@@ -11,4 +11,12 @@ TEXT = {
     "successfully-login": {"status": "success", "description": "Login successfully"},
     "heartbeat": {"status": "success", "description": "Heartbeat"},
     "successfully-updated-info": {"status": "success", "description": "Successfully updated info"},
+    "message_sent": {"status": "success", "description": "Message %s sent"},
 }
+
+
+def text(message_id, *kwargs):
+    if message_id in TEXT:
+        to_return = TEXT[message_id].copy()
+        to_return["description"] = to_return["description"] % kwargs
+        return to_return

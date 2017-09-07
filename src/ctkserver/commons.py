@@ -32,3 +32,12 @@ def generate_random_code():
         sa.append(random.choice(seed))
     salt = ''.join(sa)
     return salt
+
+
+# Function name: generate_md5
+# Description: Generate ramdom code
+# Return value: 80-bit ramdom code
+def generate_md5(data):
+    import hashlib
+    hash_md5 = hashlib.md5(data)
+    return hash_md5.hexdigest()

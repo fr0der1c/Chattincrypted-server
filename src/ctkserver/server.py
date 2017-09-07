@@ -1,10 +1,10 @@
-import json
 import socketserver
 import msgpack
+import os
 import mysql.connector
-from commons import get_time
+from ctkserver.commons import get_time, generate_md5
 from ctkserver.config import load_config
-from ctkserver.predefined_text import TEXT
+from ctkserver.predefined_text import TEXT, text
 from ctkserver.user import log_in, heartbeat
 
 CONFIG = load_config()
@@ -90,18 +90,43 @@ def action_update_personal_info(parameters, username=None):
 def action_send_message(parameters, username=None):
     print("action_send_message:%s" % username)
     if "type" in parameters and "time" in parameters and "receiver" in parameters:
-        if parameters["type"] in CONFIG.AVAILABLE_MESSAGE_TYPE:
+        # Validate type and sender
+        if parameters["type"] in CONFIG.AVAILABLE_MESSAGE_TYPE and parameters["sender"] == username:
             message = {
                 'type': parameters['type'],
                 'time': parameters['time'],
                 'receiver': parameters['receiver'],
                 'sender': parameters['sender']
             }
+            # Generate message_id
+            message["message_id"] = generate_md5(message["type"] + message["time"] + message["sender"] +
+                                                 message["receiver"])
             if parameters["type"] == "text":
                 message["message"] = parameters["message"]
+
+                # Save message to database
+                query = "INSERT INTO ctk_messages " \
+                        "(message_id, if_sent, type, time, sender,receiver,message,is_attachment) " \
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+                cursor.execute(query, (message["message_id"], False, message["type"], message["time"],
+                                       message["sender"], message["receiver"], message["message"], False))
+                mysql_conn.commit()
+
+                return text("message_sent", message["message_id"])
             else:
-                pass
-                # save file
+                # Save file to local
+                with open(os.path.join(os.getcwd(), "attachments/{}".format(message["message_id"])), 'wb') as f:
+                    f.write(parameters["data"])
+
+                # Save message to database
+                query = "INSERT INTO ctk_messages " \
+                        "(message_id, if_sent, type, time, sender,receiver,is_attachment) " \
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                cursor.execute(query, (message["message_id"], False, message["type"], message["time"],
+                                       message["sender"], message["receiver"], True))
+                mysql_conn.commit()
+
+                return text("message_sent", message["message_id"])
         else:
             return TEXT["unexpected_behaviour"]
     else:
