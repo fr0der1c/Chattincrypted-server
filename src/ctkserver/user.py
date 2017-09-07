@@ -26,7 +26,7 @@ def log_in(LOGGEDIN_USERS, username):
 
 
 # Function name: heartbeat
-# Description: Log new time in LOGGEDIN_USERS
+# Description: Log new time in LOGGED_IN_USERS
 # Return value: no return value
 def heartbeat(LOGGEDIN_USERS, username):
     LOGGEDIN_USERS[username]["time"] = get_time()

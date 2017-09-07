@@ -1,14 +1,16 @@
 import socketserver
 import msgpack
 import os
+import time
 import mysql.connector
+import threading
 from ctkserver.commons import get_time, generate_md5
 from ctkserver.config import load_config
 from ctkserver.predefined_text import TEXT, text
 from ctkserver.user import log_in, heartbeat
 
 CONFIG = load_config()
-LOGGEDIN_USERS = {}
+LOGGED_IN_USERS = {}
 
 
 # Function name: action_user_register
@@ -43,7 +45,7 @@ def action_user_login(parameters, username=None):
         fetch_result = cursor.fetchall()
         if fetch_result:
             if fetch_result[0][0] == parameters["password"]:
-                log_in(LOGGEDIN_USERS, parameters["username"])
+                log_in(LOGGED_IN_USERS, parameters["username"])
                 return TEXT["successfully-login"]
             else:
                 return TEXT["incorrect-password"]
@@ -138,19 +140,10 @@ def action_send_message(parameters, username=None):
 # Return value: Json-like text
 def action_heartbeat(parameters, username=None):
     if username:
-        heartbeat(LOGGEDIN_USERS, username)
+        heartbeat(LOGGED_IN_USERS, username)
         return TEXT["heartbeat"]
     else:
         return TEXT["unexpected_behaviour"]
-
-
-# Function name: _offline_user_clean
-# Description: Clean offline users in LOGGEDIN_USERS
-# Return value: no return value
-def _offline_user_clean():
-    for (k, v) in LOGGEDIN_USERS.items():
-        if get_time() - v["time"] > 60:
-            LOGGEDIN_USERS.pop(k)
 
 
 # Function name: do_action
@@ -166,15 +159,23 @@ def do_action(action, parameters, username=None):
         "heartbeat": action_heartbeat,
     }
     if action in actions:
+        # If logged in, pass to specific action function
         if username:
             return actions[action](parameters, username=username)
-        else:
+        # If not logged in and the request doesn't require to be logged in
+        elif action == "user-login" or action == "user-register":
             return actions[action](parameters)
+        # If not logged in and the request needs to be logged in
+        else:
+            return text("not_login")
+    # Action not found
     else:
         return TEXT["no_such_action"]
 
 
-class Server(socketserver.BaseRequestHandler):
+# Class: RequestHandler
+# Description: Handle each client
+class RequestHandler(socketserver.BaseRequestHandler):
     def handle(self):
         sock = self.request
         address = self.client_address
@@ -234,16 +235,41 @@ class Server(socketserver.BaseRequestHandler):
         sock.close()
 
 
+# Class: SendingThread
+# Description: Check if logged in users have new message and send it to them.
+class SendingThread(threading.Thread):
+    def run(self):
+        pass
+        # if
+
+
+# Class: RemoveOfflineUserThread
+# Description: Remove offline users from LOGGED_IN_USERS every minute
+class RemoveOfflineUserThread(threading.Thread):
+    def run(self):
+        while True:
+            for (k, v) in LOGGED_IN_USERS.items():
+                if get_time() - v["time"] > 60:
+                    LOGGED_IN_USERS.pop(k)
+            time.sleep(60)
+
+
 if __name__ == '__main__':
     # Connect to database
     mysql_conn = mysql.connector.connect(**CONFIG.MYSQL_CONFIG)
     cursor = mysql_conn.cursor()
 
     # Start TCP server
-    server = socketserver.ThreadingTCPServer((CONFIG.HOST, CONFIG.PORT), Server)
+    server = socketserver.ThreadingTCPServer((CONFIG.HOST, CONFIG.PORT), RequestHandler)
     print("[INFO]Sever started on port %s." % CONFIG.PORT)
     try:
         server.serve_forever()
+
+        # Open threads for sending messages and removing offline users
+        sending_thread = SendingThread()
+        threads = [sending_thread]
+        for each_thread in threads:
+            each_thread.start()
     except KeyboardInterrupt:
         server.shutdown()
         cursor.close()

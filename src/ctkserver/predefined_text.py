@@ -6,6 +6,7 @@ TEXT = {
     "incorrect-password": {"status": "failed", "description": "Incorrect password"},
     "bye-bye": {"status": "success", "description": "Bye-bye"},
     "unexpected_behaviour": {"status": "failed", "description": "Unexpected behaviour"},
+    "not_login": {"status": "failed", "description": "Not login"},
     "internal_error": {"status": "failed", "description": "Server internal error"},
     "successfully_registered": {"status": "success", "description": "Successfully registered"},
     "successfully-login": {"status": "success", "description": "Login successfully"},
@@ -16,7 +17,6 @@ TEXT = {
 
 
 def text(message_id, *kwargs):
-    if message_id in TEXT:
-        to_return = TEXT[message_id].copy()
-        to_return["description"] = to_return["description"] % kwargs
-        return to_return
+    to_return = TEXT[message_id].copy()
+    to_return["description"] = to_return["description"] % kwargs
+    return to_return
