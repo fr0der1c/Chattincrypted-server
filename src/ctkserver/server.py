@@ -1,6 +1,12 @@
-import socketserver, json, mysql.connector
+import json
+import socketserver
+
+import mysql.connector
+
+from commons import get_time
 from ctkserver.config import load_config
 from ctkserver.predefined_text import JSONS
+from ctkserver.user import log_in, heartbeat
 
 CONFIG = load_config()
 LOGGEDIN_USERS = {}
@@ -32,7 +38,7 @@ def action_user_login(parameters):
         fetch_result = cursor.fetchall()
         if fetch_result:
             if fetch_result[0][0] == parameters["password"]:
-                _log_in(parameters["username"])
+                log_in(LOGGEDIN_USERS, parameters["username"])
                 return JSONS["successfully-login"]
             else:
                 return JSONS["incorrect-password"]
@@ -65,7 +71,7 @@ def action_update_personal_info(parameters):
             mysql_conn.commit()
             return JSONS["successfully-updated-info"]
         except:
-            return JSONS["database_error"]
+            return JSONS["internal_error"]
     else:
         return JSONS["unexpected_behaviour"]
 
@@ -86,66 +92,8 @@ def action_send_message(parameters):
 # Return value: no return value
 def _offline_user_clean():
     for (k, v) in LOGGEDIN_USERS.items():
-        if _get_time() - v["time"] > 60:
+        if get_time() - v["time"] > 60:
             LOGGEDIN_USERS.pop(k)
-
-
-# Function name: _schedule
-# Description: Schedule a function to run every interval(seconds)
-# Return value: no return value
-def _schedule(func_to_run, interval_second):
-    import time
-    while True:
-        func_to_run()
-        time.sleep(interval_second)
-
-
-# Function name: _logged_in
-# Description: Check if a user is (precisely) logged in
-# Return value: True/False
-def _logged_in(username):
-    global LOGGEDIN_USERS
-    if username in LOGGEDIN_USERS and _get_time() - LOGGEDIN_USERS[username]["time"] <= 60:
-        return True
-    else:
-        return False
-
-
-# Function name: _log_in
-# Description: Log in a new user and return its ID
-# Return value: user ID
-def _log_in(username):
-    global LOGGEDIN_USERS
-    id = _generate_random_code()
-    while id in LOGGEDIN_USERS:
-        id = _generate_random_code()
-    LOGGEDIN_USERS[username] = {
-        "id": id,
-        "time": _get_time(),
-    }
-    return id
-
-
-# Function name: _get_time
-# Description: Get timestamp of now
-# Return value: timestamp(s)
-def _get_time():
-    import time
-    now = int(time.time())
-    return now
-
-
-# Function name: _generate_random_code
-# Description: Generate ramdom code
-# Return value: 80-bit ramdom code
-def _generate_random_code():
-    import random
-    seed = "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()_+=-"
-    sa = []
-    for i in range(80):
-        sa.append(random.choice(seed))
-    salt = ''.join(sa)
-    return salt
 
 
 # Function name: do_action
@@ -164,16 +112,11 @@ def do_action(action, parameters):
         return JSONS["no_such_action"]
 
 
-# 创建一个类，继承自socketserver模块下的BaseRequestHandler类
 class Server(socketserver.BaseRequestHandler):
-    # 要想实现并发效果必须重写父类中的handle方法，在此方法中实现服务端的逻辑代码
-    # （不用再写连接准备，包括bind()、listen()、accept()方法）
     def handle(self):
         sock = self.request
         address = self.client_address
-        print("{} connected".format(address))
-        # 上面两行代码，等于 sock,address = socket.accept()，
-        # 只不过在socketserver模块中已经替我们包装好了，还替我们包装了包括bind()、listen()、accept()方法
+        print("[INFO]{} connected.".format(address))
         while True:
             try:
                 recv = sock.recv(CONFIG.BUFSIZE)
@@ -182,19 +125,30 @@ class Server(socketserver.BaseRequestHandler):
                     send_data_json = bytes("This is %s" % username, encoding=CONFIG.ENCODE)
                     sock.sendall(send_data_json)
                 if accept_data_json:
-                    print("Accepted data json %s" % accept_data_json)
+                    print("[INFO]Accepted data json %s." % accept_data_json)
                 try:
                     accept_data = json.loads(accept_data_json)
                     if "parameters" in accept_data and "action" in accept_data:
+                        # If Bye-bye
                         if accept_data["action"] == "Bye-bye":
-                            send_data = "Bye-bye"
+                            send_data = JSONS["bye-bye"]
+                            send_data_json = bytes(json.dumps(send_data), encoding=CONFIG.ENCODE)
+                            break
+                        elif accept_data["action"] == "heartbeat":
+                            if "username" in locals().keys():
+                                heartbeat(LOGGEDIN_USERS, username)
+                                send_data = JSONS["heartbeat"]
+                            else:
+                                send_data = JSONS["unexpected_behaviour"]
+                            send_data_json = bytes(json.dumps(send_data), encoding=CONFIG.ENCODE)
+                        # If action is not "Bye-bye", continue to process
                         else:
-                            # If action is not "Bye-bye"
                             send_data = do_action(accept_data["action"], accept_data["parameters"])
+                            send_data_json = bytes(json.dumps(send_data), encoding=CONFIG.ENCODE)
                             # if successfully log in, save username to variable username
                             if send_data["description"] == "Login successfully":
                                 username = accept_data["parameters"]["username"]
-                        send_data_json = bytes(json.dumps(send_data), encoding=CONFIG.ENCODE)
+                                print("[INFO]User {} logged in.".format(username))
                     else:
                         # if action and parameters is not present together
                         send_data_json = bytes(json.dumps(JSONS['incomplete_parameters']), encoding=CONFIG.ENCODE)
@@ -205,27 +159,30 @@ class Server(socketserver.BaseRequestHandler):
                     sock.sendall(send_data_json)
             except ConnectionResetError:
                 # Client trying to connect, but server closed the connection
-                print("ConnectionResetError")
+                print("[WARNING]ConnectionResetError.")
                 break
             except BrokenPipeError:
                 # Server trying to write to socket, but client closed the connection
-                print("Client closed the connection")
+                print("[INFO]Client closed the connection.")
                 break
             except OSError as e:
-                print("OS ERROR %s" % e)
+                print("[ERROR]OS ERROR %s." % e)
                 break
-        print("Socket Close")
         sock.close()
 
 
 if __name__ == '__main__':
+    # Connect to database
     mysql_conn = mysql.connector.connect(**CONFIG.MYSQL_CONFIG)
     cursor = mysql_conn.cursor()
+
+    # Start TCP server
+    server = socketserver.ThreadingTCPServer((CONFIG.HOST, CONFIG.PORT), Server)
+    print("[INFO]Sever started on port %s." % CONFIG.PORT)
     try:
-        server = socketserver.ThreadingTCPServer((CONFIG.HOST, CONFIG.PORT), Server)
-        print("Sever started on port %s." % CONFIG.PORT)
         server.serve_forever()
     except KeyboardInterrupt:
+        server.shutdown()
         cursor.close()
         mysql_conn.close()
-        print("Keyboard interrupt")
+        print("[INFO]Server stopped.")
