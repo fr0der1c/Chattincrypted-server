@@ -4,19 +4,22 @@ import msgpack
 import mysql.connector
 from commons import get_time
 from ctkserver.config import load_config
-from ctkserver.predefined_text import JSONS
+from ctkserver.predefined_text import TEXT
 from ctkserver.user import log_in, heartbeat
 
 CONFIG = load_config()
 LOGGEDIN_USERS = {}
 
 
+# Function name: action_user_register
+# Description: Handle register request from client
+# Return value: Json-like text
 def action_user_register(parameters, username=None):
     query = "SELECT * FROM ctk_users WHERE username=%s"
     cursor.execute(query, (parameters["username"],))
     # If found entry, tell client that this username is already in use.
     if cursor.fetchall():
-        return JSONS["username_already_in_use"]
+        return TEXT["username_already_in_use"]
     # If all parameters are met, add new user. Else tell client incomplete parameters.
     if "mail-address" in parameters and "username" in parameters and "nickname" in parameters and \
                     "password" in parameters and "fingerprint" in parameters:
@@ -25,11 +28,14 @@ def action_user_register(parameters, username=None):
         cursor.execute(query, (parameters["mail-address"], parameters["username"], parameters["nickname"],
                                parameters["password"], parameters["fingerprint"]))
         mysql_conn.commit()
-        return JSONS["successfully_registered"]
+        return TEXT["successfully_registered"]
     else:
-        return JSONS['incomplete_parameters']
+        return TEXT['incomplete_parameters']
 
 
+# Function name: action_user_login
+# Description: Handle login request from client
+# Return value: Json-like text
 def action_user_login(parameters, username=None):
     if "username" in parameters and "password" in parameters:
         query = "SELECT password FROM ctk_users WHERE username=%s"
@@ -38,15 +44,18 @@ def action_user_login(parameters, username=None):
         if fetch_result:
             if fetch_result[0][0] == parameters["password"]:
                 log_in(LOGGEDIN_USERS, parameters["username"])
-                return JSONS["successfully-login"]
+                return TEXT["successfully-login"]
             else:
-                return JSONS["incorrect-password"]
+                return TEXT["incorrect-password"]
         else:
-            return JSONS["no-such-user"]
+            return TEXT["no-such-user"]
     else:
-        return JSONS['incomplete_parameters']
+        return TEXT['incomplete_parameters']
 
 
+# Function name: action_update_personal_info
+# Description: Handle update personal info request from client
+# Return value: Json-like text
 def action_update_personal_info(parameters, username=None):
     query = "SELECT nickname,password,signature,avatar FROM ctk_users WHERE username=%s"
     cursor.execute(query, (parameters["username"],))
@@ -68,13 +77,16 @@ def action_update_personal_info(parameters, username=None):
             query = "UPDATE (nickname,password,signature,avatar) VALUES (%s,%s,%s,%s) in ctk_users WHERE username=%s"
             cursor.execute(query, (nickname, password, signature, avatar))
             mysql_conn.commit()
-            return JSONS["successfully-updated-info"]
+            return TEXT["successfully-updated-info"]
         except:
-            return JSONS["internal_error"]
+            return TEXT["internal_error"]
     else:
-        return JSONS["unexpected_behaviour"]
+        return TEXT["unexpected_behaviour"]
 
 
+# Function name: action_send_message
+# Description: Handle messages sent from clients
+# Return value: Json-like text
 def action_send_message(parameters, username=None):
     print("action_send_message:%s" % username)
     if "type" in parameters and "time" in parameters and "receiver" in parameters:
@@ -91,17 +103,20 @@ def action_send_message(parameters, username=None):
                 pass
                 # save file
         else:
-            return JSONS["unexpected_behaviour"]
+            return TEXT["unexpected_behaviour"]
     else:
-        return JSONS['incomplete_parameters']
+        return TEXT['incomplete_parameters']
 
 
-def action_heartbeat(username=None):
+# Function name: action_heartbeat
+# Description: Handle heartbeat from client
+# Return value: Json-like text
+def action_heartbeat(parameters, username=None):
     if username:
         heartbeat(LOGGEDIN_USERS, username)
-        return JSONS["heartbeat"]
+        return TEXT["heartbeat"]
     else:
-        return JSONS["unexpected_behaviour"]
+        return TEXT["unexpected_behaviour"]
 
 
 # Function name: _offline_user_clean
@@ -117,7 +132,7 @@ def _offline_user_clean():
 # Description: Select an specific action to do
 # Return value: a dict to return to client
 def do_action(action, parameters, username=None):
-    print("do_action username:%s"%username)
+    print("do_action username:%s" % username)
     actions = {
         "user-register": action_user_register,
         "user-login": action_user_login,
@@ -131,7 +146,7 @@ def do_action(action, parameters, username=None):
         else:
             return actions[action](parameters)
     else:
-        return JSONS["no_such_action"]
+        return TEXT["no_such_action"]
 
 
 class Server(socketserver.BaseRequestHandler):
@@ -146,13 +161,13 @@ class Server(socketserver.BaseRequestHandler):
                 if 'username' in locals().keys():
                     send_data_json = msgpack.dumps("This is %s" % username)
                     sock.sendall(send_data_json)
-                accept_data = msgpack.loads(accept_data_json,encoding='utf-8')
+                accept_data = msgpack.loads(accept_data_json, encoding='utf-8')
                 if accept_data_json:
                     print("[INFO]Accepted data %s." % accept_data)
                 if "parameters" in accept_data and "action" in accept_data:
                     # If Bye-bye
                     if accept_data["action"] == "Bye-bye":
-                        send_data = JSONS["bye-bye"]
+                        send_data = TEXT["bye-bye"]
                         send_data_json = msgpack.dumps(send_data)
                         break
                     else:
@@ -169,7 +184,7 @@ class Server(socketserver.BaseRequestHandler):
                             print("[INFO]User {} logged in.".format(username))
                 else:
                     # if action and parameters is not present together
-                    send_data_json = msgpack.dumps(JSONS['incomplete_parameters'])
+                    send_data_json = msgpack.dumps(TEXT['incomplete_parameters'])
                 sock.sendall(send_data_json)
             except msgpack.exceptions.UnpackValueError:
                 # Client closed connection

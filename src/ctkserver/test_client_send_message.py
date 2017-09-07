@@ -29,16 +29,16 @@ class ReceivingThread(threading.Thread):
 class SendingThread(threading.Thread):
     def run(self):
         print("Sending thread start")
-        while True:
-            time.sleep(2)
-            data_json = {
-                "action": "heartbeat",
-                "parameters": {
-                    "data": "alive",
-                }
+        time.sleep(2)
+        data_json = {
+            "action": "send-message",
+            "parameters": {
+                "username": "frederic",
+                "password": "pass_frederic",
             }
-            data_2 = msgpack.dumps(data_json)
-            tcpCliSock.sendall(data_2)
+        }
+        data_2 = msgpack.dumps(data_json)
+        tcpCliSock.sendall(data_2)
 
 
 if __name__ == '__main__':

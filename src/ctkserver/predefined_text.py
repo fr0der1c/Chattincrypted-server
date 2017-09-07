@@ -1,4 +1,4 @@
-JSONS = {
+TEXT = {
     "incomplete_parameters": {"status": "failed", "description": "Incomplete parameters"},
     "no_such_action": {"status": "failed", "description": "No such action"},
     "username_already_in_use": {"status": "failed", "description": "Username already in use"},
