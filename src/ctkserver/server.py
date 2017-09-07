@@ -169,49 +169,53 @@ class Server(socketserver.BaseRequestHandler):
     # 要想实现并发效果必须重写父类中的handle方法，在此方法中实现服务端的逻辑代码
     # （不用再写连接准备，包括bind()、listen()、accept()方法）
     def handle(self):
+        sock = self.request
+        address = self.client_address
+        print("{} connected".format(address))
+        # 上面两行代码，等于 sock,address = socket.accept()，
+        # 只不过在socketserver模块中已经替我们包装好了，还替我们包装了包括bind()、listen()、accept()方法
         while True:
-            sock = self.request
-            address = self.client_address
-            # 上面两行代码，等于 sock,address = socket.accept()，
-            # 只不过在socketserver模块中已经替我们包装好了，还替我们包装了包括bind()、listen()、accept()方法
-            while True:
+            try:
+                recv = sock.recv(CONFIG.BUFSIZE)
+                accept_data_json = str(recv, encoding=CONFIG.ENCODE)
+                if 'username' in locals().keys():
+                    send_data_json = bytes("This is %s" % username, encoding=CONFIG.ENCODE)
+                    sock.sendall(send_data_json)
+                if accept_data_json:
+                    print("Accepted data json %s" % accept_data_json)
                 try:
-                    recv = sock.recv(CONFIG.BUFSIZE)
-                    accept_data_json = str(recv, encoding=CONFIG.ENCODE)
-                    if 'username' in locals().keys():
-                        send_data_json = bytes("This is %s" % username, encoding=CONFIG.ENCODE)
-                        sock.sendall(send_data_json)
-                    if accept_data_json:
-                        print("Accepted data json %s" % accept_data_json)
-                    try:
-                        accept_data = json.loads(accept_data_json)
-                        if "parameters" in accept_data and "action" in accept_data:
-                            if accept_data["action"] == "Bye-bye":
-                                send_data = "Bye-bye"
-                            else:
-                                # If action is not "Bye-bye"
-                                send_data = do_action(accept_data["action"], accept_data["parameters"])
-                                if send_data["description"] == "Login successfully":
-                                    username = accept_data["parameters"]["username"]
-                            send_data_json = bytes(json.dumps(send_data), encoding=CONFIG.ENCODE)
+                    accept_data = json.loads(accept_data_json)
+                    if "parameters" in accept_data and "action" in accept_data:
+                        if accept_data["action"] == "Bye-bye":
+                            send_data = "Bye-bye"
                         else:
-                            # if action and parameters is not present together
-                            send_data_json = bytes(json.dumps(JSONS['incomplete_parameters']), encoding=CONFIG.ENCODE)
-                        sock.sendall(send_data_json)
-                    except json.decoder.JSONDecodeError:
-                        # Not a JSON file
-                        send_data_json = bytes(json.dumps(JSONS['unexpected_behaviour']), encoding=CONFIG.ENCODE)
-                        sock.sendall(send_data_json)
-                except ConnectionResetError:
-                    # Client trying to connect, but server closed the connection
-                    print("ConnectionResetError")
-                    break
-                except BrokenPipeError:
-                    # Server trying to write to socket, but client closed the connection
-                    print("BrokenPipeError")
-                    break
-
-            sock.close()
+                            # If action is not "Bye-bye"
+                            send_data = do_action(accept_data["action"], accept_data["parameters"])
+                            # if successfully log in, save username to variable username
+                            if send_data["description"] == "Login successfully":
+                                username = accept_data["parameters"]["username"]
+                        send_data_json = bytes(json.dumps(send_data), encoding=CONFIG.ENCODE)
+                    else:
+                        # if action and parameters is not present together
+                        send_data_json = bytes(json.dumps(JSONS['incomplete_parameters']), encoding=CONFIG.ENCODE)
+                    sock.sendall(send_data_json)
+                except json.decoder.JSONDecodeError:
+                    # Not a JSON file
+                    send_data_json = bytes(json.dumps(JSONS['unexpected_behaviour']), encoding=CONFIG.ENCODE)
+                    sock.sendall(send_data_json)
+            except ConnectionResetError:
+                # Client trying to connect, but server closed the connection
+                print("ConnectionResetError")
+                break
+            except BrokenPipeError:
+                # Server trying to write to socket, but client closed the connection
+                print("Client closed the connection")
+                break
+            except OSError as e:
+                print("OS ERROR %s" % e)
+                break
+        print("Socket Close")
+        sock.close()
 
 
 if __name__ == '__main__':
