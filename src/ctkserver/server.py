@@ -1,8 +1,7 @@
 import json
 import socketserver
-
+import msgpack
 import mysql.connector
-
 from commons import get_time
 from ctkserver.config import load_config
 from ctkserver.predefined_text import JSONS
@@ -12,7 +11,7 @@ CONFIG = load_config()
 LOGGEDIN_USERS = {}
 
 
-def action_user_register(parameters):
+def action_user_register(parameters, username=None):
     query = "SELECT * FROM ctk_users WHERE username=%s"
     cursor.execute(query, (parameters["username"],))
     # If found entry, tell client that this username is already in use.
@@ -31,7 +30,7 @@ def action_user_register(parameters):
         return JSONS['incomplete_parameters']
 
 
-def action_user_login(parameters):
+def action_user_login(parameters, username=None):
     if "username" in parameters and "password" in parameters:
         query = "SELECT password FROM ctk_users WHERE username=%s"
         cursor.execute(query, (parameters["username"],))
@@ -48,7 +47,7 @@ def action_user_login(parameters):
         return JSONS['incomplete_parameters']
 
 
-def action_update_personal_info(parameters):
+def action_update_personal_info(parameters, username=None):
     query = "SELECT nickname,password,signature,avatar FROM ctk_users WHERE username=%s"
     cursor.execute(query, (parameters["username"],))
     fetch_result = cursor.fetchall()
@@ -76,15 +75,32 @@ def action_update_personal_info(parameters):
         return JSONS["unexpected_behaviour"]
 
 
-def action_send_message(parameters):
+def action_send_message(parameters, username=None):
     if "type" in parameters and "time" in parameters and "receiver" in parameters:
-        if "type" == "text":
-            pass
-        elif "type" == "file":
-            pass
-
+        if parameters["type"] in CONFIG.AVAILABLE_MESSAGE_TYPE:
+            message = {
+                'type': parameters['type'],
+                'time': parameters['time'],
+                'receiver': parameters['receiver'],
+                'sender': parameters['sender']
+            }
+            if parameters["type"] == "text":
+                message["message"] = parameters["message"]
+            else:
+                pass
+                # save file
+        else:
+            return JSONS["unexpected_behaviour"]
     else:
         return JSONS['incomplete_parameters']
+
+
+def action_heartbeat(username=None):
+    if username:
+        heartbeat(LOGGEDIN_USERS, username)
+        return JSONS["heartbeat"]
+    else:
+        return JSONS["unexpected_behaviour"]
 
 
 # Function name: _offline_user_clean
@@ -99,15 +115,19 @@ def _offline_user_clean():
 # Function name: do_action
 # Description: Select an specific action to do
 # Return value: a dict to return to client
-def do_action(action, parameters):
+def do_action(action, parameters, username=None):
     actions = {
         "user-register": action_user_register,
         "user-login": action_user_login,
         "update-personal-info": action_update_personal_info,
         "send-message": action_send_message,
+        "heartbeat": action_heartbeat,
     }
     if action in actions:
-        return actions[action](parameters)
+        if username:
+            return actions[action](parameters, username=username)
+        else:
+            return actions[action](parameters)
     else:
         return JSONS["no_such_action"]
 
@@ -120,43 +140,43 @@ class Server(socketserver.BaseRequestHandler):
         while True:
             try:
                 recv = sock.recv(CONFIG.BUFSIZE)
-                accept_data_json = str(recv, encoding=CONFIG.ENCODE)
+                accept_data_json = recv
                 if 'username' in locals().keys():
-                    send_data_json = bytes("This is %s" % username, encoding=CONFIG.ENCODE)
+                    send_data_json = msgpack.dumps("This is %s" % username)
                     sock.sendall(send_data_json)
+                accept_data = msgpack.loads(accept_data_json,encoding='utf-8')
                 if accept_data_json:
-                    print("[INFO]Accepted data json %s." % accept_data_json)
-                try:
-                    accept_data = json.loads(accept_data_json)
-                    if "parameters" in accept_data and "action" in accept_data:
-                        # If Bye-bye
-                        if accept_data["action"] == "Bye-bye":
-                            send_data = JSONS["bye-bye"]
-                            send_data_json = bytes(json.dumps(send_data), encoding=CONFIG.ENCODE)
-                            break
-                        elif accept_data["action"] == "heartbeat":
-                            if "username" in locals().keys():
-                                heartbeat(LOGGEDIN_USERS, username)
-                                send_data = JSONS["heartbeat"]
-                            else:
-                                send_data = JSONS["unexpected_behaviour"]
-                            send_data_json = bytes(json.dumps(send_data), encoding=CONFIG.ENCODE)
-                        # If action is not "Bye-bye", continue to process
+                    print("[INFO]Accepted data %s." % accept_data)
+                if "parameters" in accept_data and "action" in accept_data:
+                    # If Bye-bye
+                    if accept_data["action"] == "Bye-bye":
+                        send_data = JSONS["bye-bye"]
+                        send_data_json = msgpack.dumps(send_data)
+                        break
+                    else:
+                        if "username" in locals().keys():
+                            send_data = do_action(accept_data["action"], accept_data["parameters"],
+                                                  username=username)
                         else:
                             send_data = do_action(accept_data["action"], accept_data["parameters"])
-                            send_data_json = bytes(json.dumps(send_data), encoding=CONFIG.ENCODE)
-                            # if successfully log in, save username to variable username
-                            if send_data["description"] == "Login successfully":
-                                username = accept_data["parameters"]["username"]
-                                print("[INFO]User {} logged in.".format(username))
-                    else:
-                        # if action and parameters is not present together
-                        send_data_json = bytes(json.dumps(JSONS['incomplete_parameters']), encoding=CONFIG.ENCODE)
-                    sock.sendall(send_data_json)
-                except json.decoder.JSONDecodeError:
-                    # Not a JSON file
-                    send_data_json = bytes(json.dumps(JSONS['unexpected_behaviour']), encoding=CONFIG.ENCODE)
-                    sock.sendall(send_data_json)
+                        send_data_json = msgpack.dumps(send_data)
+
+                        # if successfully log in, save username to variable username
+                        if send_data["description"] == "Login successfully":
+                            username = accept_data["parameters"]["username"]
+                            print("[INFO]User {} logged in.".format(username))
+                else:
+                    # if action and parameters is not present together
+                    send_data_json = msgpack.dumps(JSONS['incomplete_parameters'])
+                sock.sendall(send_data_json)
+            except msgpack.exceptions.UnpackValueError:
+                # Client closed connection
+                print("[INFO]Client closed the connection.")
+                break
+            except msgpack.exceptions.ExtraData:
+                # Not a msgpack file
+                print("[EXCEPTION]Not a msgpack file")
+                break
             except ConnectionResetError:
                 # Client trying to connect, but server closed the connection
                 print("[WARNING]ConnectionResetError.")
@@ -168,6 +188,7 @@ class Server(socketserver.BaseRequestHandler):
             except OSError as e:
                 print("[ERROR]OS ERROR %s." % e)
                 break
+        print("[INFO]Socket close.")
         sock.close()
 
 

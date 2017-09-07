@@ -2,6 +2,7 @@
 from socket import *
 from ctkserver.config import load_config
 import json
+import msgpack
 
 CONFIG = load_config()
 
@@ -23,12 +24,12 @@ data_json = {
         "fingerprint": "FINGERPRINT1"
     }
 }
-data = json.dumps(data_json)
-
-tcpCliSock.sendall(data.encode())
+data = msgpack.dumps(data_json)
+print("data:%s"%data)
+tcpCliSock.sendall(data)
 
 while True:
-    data = json.loads(tcpCliSock.recv(BUFSIZE).decode())
+    data = msgpack.loads(tcpCliSock.recv(BUFSIZE))
     print("Received data:%s" % data)
 
     if data == {"status": "success", "description": "Bye-bye"}:
