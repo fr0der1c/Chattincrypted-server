@@ -3,6 +3,7 @@ class Config(object):
     PORT = 50008
     BUFSIZE = 1024
     ENCODE = "utf8"
+    DEBUG = False
     AVAILABLE_MESSAGE_TYPE = ["image", "file", "voice", "text"]
     DB = {
         'user': 'chattincrypted_user',

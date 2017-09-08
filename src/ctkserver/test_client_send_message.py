@@ -33,8 +33,10 @@ class SendingThread(threading.Thread):
         data_json = {
             "action": "send-message",
             "parameters": {
-                "username": "frederic",
-                "password": "pass_frederic",
+                "type": "text",
+                "message": "message",
+                "receiver": "lavender",
+                "time": "time",
             }
         }
         data_2 = msgpack.dumps(data_json)
@@ -45,8 +47,8 @@ if __name__ == '__main__':
     data_json = {
         "action": "user-login",
         "parameters": {
-            "username": "frederic",
-            "password": "pass_frederic",
+            "username": "lavender",
+            "password": "pass_lavender",
         }
     }
     data = msgpack.dumps(data_json)

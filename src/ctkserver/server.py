@@ -66,7 +66,7 @@ class Blacklist(ORMBaseModel):
     blocked_users = Column(Text, nullable=False)
 
     def __repr__(self):
-        return "<Blacklist `{}`>".format(self.username)
+        return "<Blacklist of `{}`:{}>".format(self.username, self.blocked_users)
 
 
 class Contact(ORMBaseModel):
@@ -75,7 +75,7 @@ class Contact(ORMBaseModel):
     contacts = Column(Text, nullable=False)
 
     def __repr__(self):
-        return "<Contact `{}`>".format(self.username)
+        return "<Contact of `{}`:{}>".format(self.username, self.contacts)
 
 
 # Class: RequestHandler
@@ -88,8 +88,6 @@ class RequestHandler(socketserver.BaseRequestHandler):
     def action_user_register(db_session, parameters, username=None):
         # Search in database if someone has already registered this username
         user = db_session.query(User).filter(User.username == parameters["username"]).first()
-
-        # If found entry, tell client that this username is already in use.
         if user:
             return TEXT["username_already_in_use"]
 
@@ -110,24 +108,25 @@ class RequestHandler(socketserver.BaseRequestHandler):
     #                TEXT["successfully-login"]
     @staticmethod
     def action_user_login(db_session, parameters, username=None):
-        if "username" in parameters and "password" in parameters:
-            user = db_session.query(User).filter(User.username == parameters["username"]).first()
-            if user:
-                if user.password == parameters["password"]:
-                    log_in(LOGGED_IN_USERS, parameters["username"])
-                    return TEXT["successfully-login"]
-                else:
-                    return TEXT["incorrect-password"]
-            else:
-                return TEXT["no-such-user"]
-        else:
+        if "username" not in parameters or "password" not in parameters:
             return TEXT['incomplete_parameters']
+        user = db_session.query(User).filter(User.username == parameters["username"]).first()
+        if user:
+            if user.password == parameters["password"]:
+                log_in(LOGGED_IN_USERS, parameters["username"])
+                return TEXT["successfully-login"]
+            else:
+                return TEXT["incorrect-password"]
+        else:
+            return TEXT["no-such-user"]
 
     # Function name: action_update_personal_info
     # Description  : Handle update personal info request from client
     # Return value : TEXT["unexpected_behaviour"], TEXT["internal_error"] or TEXT["successfully-updated-info"]
     @staticmethod
     def action_update_personal_info(db_session, parameters, username=None):
+        if not username:
+            return TEXT["not_login"]
         user = db_session.query(User).filter(User.username == parameters["username"]).first()
         if user:
             if "new-nickname" in parameters:
@@ -149,45 +148,48 @@ class RequestHandler(socketserver.BaseRequestHandler):
     #                text("message_sent", message["message_id"])
     @staticmethod
     def action_send_message(db_session, parameters, username=None):
-        print("action_send_message:%s" % username)
-        if "type" in parameters and "time" in parameters and "receiver" in parameters:
-            # Validate type and sender
-            if parameters["type"] in CONFIG.AVAILABLE_MESSAGE_TYPE and parameters["sender"] == username:
-                message = {
-                    'type': parameters['type'],
-                    'time': parameters['time'],
-                    'receiver': parameters['receiver'],
-                    'sender': parameters['sender']
-                }
-                # Generate message_id
-                message["message_id"] = generate_md5(message["type"] + message["time"] + message["sender"] +
-                                                     message["receiver"])
-                if parameters["type"] == "text":
-                    message["message"] = parameters["message"]
-
-                    # Save message to database
-                    db_session.add(Message(message_id=message["message_id"], if_sent=False, type=message["type"],
-                                           time=message["time"], sender=message["sender"], receiver=message["receiver"],
-                                           message=message["message"], is_attachment=False))
-                    db_session.commit()
-
-                    return text("message_sent", message["message_id"])
-                else:
-                    # Save file to local
-                    with open(os.path.join(os.getcwd(), "attachments/{}".format(message["message_id"])), 'wb') as f:
-                        f.write(parameters["data"])
-
-                    # Save message to database
-                    db_session.add(Message(message_id=message["message_id"], if_sent=False, type=message["type"],
-                                           time=message["time"], sender=message["sender"], receiver=message["receiver"],
-                                           is_attachment=True))
-                    db_session.commit()
-
-                    return text("message_sent", message["message_id"])
-            else:
-                return TEXT["unexpected_behaviour"]
-        else:
+        if not username:
+            return TEXT["not_login"]
+        if "type" not in parameters or "time" not in parameters or "receiver" not in parameters:
             return TEXT['incomplete_parameters']
+        if parameters["type"] not in CONFIG.AVAILABLE_MESSAGE_TYPE:
+            return TEXT['unexpected_behaviour']
+        if not db_session.query(User).filter(User.username==parameters["receiver"]).first():
+            return TEXT['unexpected_behaviour']
+        message = {
+            'type': parameters['type'],
+            'time': parameters['time'],
+            'receiver': parameters['receiver'],
+            'sender': username
+        }
+        # Generate message_id
+        message["message_id"] = generate_md5(message["type"] + message["time"] + message["sender"] +
+                                             message["receiver"])
+
+        if parameters["type"] == "text":
+            message["message"] = parameters["message"]
+
+            # Save message to database
+            db_session.add(Message(message_id=message["message_id"], if_sent=False, type=message["type"],
+                                   time=message["time"], sender=message["sender"],
+                                   receiver=message["receiver"],
+                                   message=message["message"], is_attachment=False))
+            db_session.commit()
+
+            return text("message_sent", message["message_id"])
+        else:
+            # Save file to local
+            with open(os.path.join(os.getcwd(), "attachments/{}".format(message["message_id"])), 'wb') as f:
+                f.write(parameters["data"])
+
+            # Save message to database
+            db_session.add(Message(message_id=message["message_id"], if_sent=False, type=message["type"],
+                                   time=message["time"], sender=message["sender"],
+                                   receiver=message["receiver"],
+                                   is_attachment=True))
+            db_session.commit()
+
+            return text("message_sent", message["message_id"])
 
     # Function name: action_heartbeat
     # Description  : Handle heartbeat from client
@@ -205,7 +207,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : a dict to return to client
     @staticmethod
     def do_action(db_session, action, parameters, username=None):
-        print("do_action username:%s" % username)
+        if CONFIG.DEBUG:
+            print("do_action username:%s" % username)
         actions = {
             "user-register": RequestHandler.action_user_register,
             "user-login": RequestHandler.action_user_login,
