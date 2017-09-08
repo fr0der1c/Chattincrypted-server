@@ -125,8 +125,6 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : TEXT["unexpected_behaviour"], TEXT["internal_error"] or TEXT["successfully-updated-info"]
     @staticmethod
     def action_update_personal_info(db_session, parameters, username=None):
-        if not username:
-            return TEXT["not_login"]
         user = db_session.query(User).filter(User.username == parameters["username"]).first()
         if user:
             if "new-nickname" in parameters:
@@ -148,13 +146,11 @@ class RequestHandler(socketserver.BaseRequestHandler):
     #                text("message_sent", message["message_id"])
     @staticmethod
     def action_send_message(db_session, parameters, username=None):
-        if not username:
-            return TEXT["not_login"]
         if "type" not in parameters or "time" not in parameters or "receiver" not in parameters:
             return TEXT['incomplete_parameters']
         if parameters["type"] not in CONFIG.AVAILABLE_MESSAGE_TYPE:
             return TEXT['unexpected_behaviour']
-        if not db_session.query(User).filter(User.username==parameters["receiver"]).first():
+        if not db_session.query(User).filter(User.username == parameters["receiver"]).first():
             return TEXT['unexpected_behaviour']
         message = {
             'type': parameters['type'],
@@ -216,19 +212,15 @@ class RequestHandler(socketserver.BaseRequestHandler):
             "send-message": RequestHandler.action_send_message,
             "heartbeat": RequestHandler.action_heartbeat,
         }
-        if action in actions:
-            # If logged in, pass to specific action function
-            if username:
-                return actions[action](db_session, parameters, username=username)
-            # If not logged in and the request doesn't require to be logged in
-            elif action == "user-login" or action == "user-register":
-                return actions[action](db_session, parameters)
-            # If not logged in and the request needs to be logged in
-            else:
-                return text("not_login")
-        # Action not found
-        else:
+        if action not in actions:
             return TEXT["no_such_action"]
+
+        if username:
+            return actions[action](db_session, parameters, username=username)
+        elif action == "user-login" or action == "user-register":
+            return actions[action](db_session, parameters)
+        else:
+            return text("not_login")
 
     # Function name: handle
     # Description  : Rewrite handle method of RequestHandler
