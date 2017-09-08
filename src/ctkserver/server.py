@@ -14,7 +14,7 @@ from ctkserver.user import log_in, heartbeat
 CONFIG = load_config()
 LOGGED_IN_USERS = {}
 ORMBaseModel = declarative_base()
-db_engine = create_engine('mysql+mysqlconnector://{}:{}@{}:{}/{}'
+db_engine = create_engine('mysql+pymysql://{}:{}@{}:{}/{}'
                           .format(CONFIG.DB['user'], CONFIG.DB['password'],
                                   CONFIG.DB['host'], CONFIG.DB['port'],
                                   CONFIG.DB['database']),
@@ -32,6 +32,9 @@ class User(ORMBaseModel):
     fingerprint = Column(String(100), nullable=False)
     avatar = Column(String(1024))
 
+    def __repr__(self):
+        return "<User `{}`>".format(self.username)
+
 
 class Message(ORMBaseModel):
     __tablename__ = 'ctk_messages'
@@ -44,11 +47,17 @@ class Message(ORMBaseModel):
     message = Column(Text)
     is_attachment = Column(Boolean, nullable=False)
 
+    def __repr__(self):
+        return "<Message `{}`>".format(self.message_id)
+
 
 class Attachment(ORMBaseModel):
     __tablename__ = 'ctk_attachments'
     message_id = Column(String(255), ForeignKey('ctk_messages.message_id'), primary_key=True)
     filename = Column(String(255), nullable=False)
+
+    def __repr__(self):
+        return "<Attachment `{}`>".format(self.message_id)
 
 
 class Blacklist(ORMBaseModel):
@@ -56,11 +65,17 @@ class Blacklist(ORMBaseModel):
     username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
     blocked_users = Column(Text, nullable=False)
 
+    def __repr__(self):
+        return "<Blacklist `{}`>".format(self.username)
+
 
 class Contact(ORMBaseModel):
     __tablename__ = 'ctk_user_contacts'
     username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
     contacts = Column(Text, nullable=False)
+
+    def __repr__(self):
+        return "<Contact `{}`>".format(self.username)
 
 
 # Class: RequestHandler
@@ -71,13 +86,13 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : TEXT['incomplete_parameters'], TEXT["successfully_registered"] or TEXT["username_already_in_use"]
     @staticmethod
     def action_user_register(db_session, parameters, username=None):
-        # user = db_session.query(User).filter(User.username == parameters["username"]).one()
-        # print(user)
-        query = "SELECT * FROM ctk_users WHERE username=%s"
-        cursor = db_engine.execute(query, (parameters["username"],))
+        # Search in database if someone has already registered this username
+        user = db_session.query(User).filter(User.username == parameters["username"]).first()
+
         # If found entry, tell client that this username is already in use.
-        if cursor.fetchall():
+        if user:
             return TEXT["username_already_in_use"]
+
         # If all parameters are met, add new user. Else tell client incomplete parameters.
         if "mail-address" in parameters and "username" in parameters and "nickname" in parameters \
                 and "password" in parameters and "fingerprint" in parameters:
@@ -96,11 +111,9 @@ class RequestHandler(socketserver.BaseRequestHandler):
     @staticmethod
     def action_user_login(db_session, parameters, username=None):
         if "username" in parameters and "password" in parameters:
-            query = "SELECT password FROM ctk_users WHERE username=%s"
-            cursor = db_engine.execute(query, (parameters["username"],))
-            fetch_result = cursor.fetchall()
-            if fetch_result:
-                if fetch_result[0][0] == parameters["password"]:
+            user = db_session.query(User).filter(User.username == parameters["username"]).first()
+            if user:
+                if user.password == parameters["password"]:
                     log_in(LOGGED_IN_USERS, parameters["username"])
                     return TEXT["successfully-login"]
                 else:
@@ -115,30 +128,18 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : TEXT["unexpected_behaviour"], TEXT["internal_error"] or TEXT["successfully-updated-info"]
     @staticmethod
     def action_update_personal_info(db_session, parameters, username=None):
-        query = "SELECT nickname,password,signature,avatar FROM ctk_users WHERE username=%s"
-        cursor = db_engine.execute(query, (parameters["username"],))
-        fetch_result = cursor.fetchall()
-        if fetch_result:
-            nickname = fetch_result[0][0]
-            password = fetch_result[0][1]
-            signature = fetch_result[0][2]
-            avatar = fetch_result[0][3]
+        user = db_session.query(User).filter(User.username == parameters["username"]).first()
+        if user:
             if "new-nickname" in parameters:
-                nickname = parameters["new-nickname"]
+                user.nickname = parameters["new-nickname"]
             if "new-passwd" in parameters:
-                password = parameters["new-passwd"]
+                user.password = parameters["new-passwd"]
             if "new-signature" in parameters:
-                signature = parameters["new-signature"]
+                user.signature = parameters["new-signature"]
             if "new-avatar" in parameters:
-                avatar = parameters["new-avatar"]
-            try:
-                query = "UPDATE (nickname,password,signature,avatar) VALUES (%s,%s,%s,%s)" \
-                        " in ctk_users WHERE username=%s"
-                cursor.execute(query, (nickname, password, signature, avatar))
-                db_session.commit()
-                return TEXT["successfully-updated-info"]
-            except:
-                return TEXT["internal_error"]
+                user.avatar = parameters["new-avatar"]
+            db_session.commit()
+            return TEXT["successfully-updated-info"]
         else:
             return TEXT["unexpected_behaviour"]
 
