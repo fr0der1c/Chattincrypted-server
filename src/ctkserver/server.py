@@ -13,7 +13,7 @@ from ctkserver.user import log_in, heartbeat
 
 CONFIG = load_config()
 LOGGED_IN_USERS = {}
-ORMBase = declarative_base()
+ORMBaseModel = declarative_base()
 db_engine = create_engine('mysql+mysqlconnector://{}:{}@{}:{}/{}'
                           .format(CONFIG.DB['user'], CONFIG.DB['password'],
                                   CONFIG.DB['host'], CONFIG.DB['port'],
@@ -23,7 +23,7 @@ db_engine = create_engine('mysql+mysqlconnector://{}:{}@{}:{}/{}'
 DBSession = sessionmaker(bind=db_engine)
 
 
-class User(ORMBase):
+class User(ORMBaseModel):
     __tablename__ = 'ctk_users'
     mail = Column(String(255))
     username = Column(String(40), primary_key=True)
@@ -33,7 +33,7 @@ class User(ORMBase):
     avatar = Column(String(1024))
 
 
-class Message(ORMBase):
+class Message(ORMBaseModel):
     __tablename__ = 'ctk_messages'
     message_id = Column(String(255), primary_key=True)
     if_sent = Column(Boolean, nullable=False)
@@ -45,19 +45,19 @@ class Message(ORMBase):
     is_attachment = Column(Boolean, nullable=False)
 
 
-class Attachment(ORMBase):
+class Attachment(ORMBaseModel):
     __tablename__ = 'ctk_attachments'
     message_id = Column(String(255), ForeignKey('ctk_messages.message_id'), primary_key=True)
     filename = Column(String(255), nullable=False)
 
 
-class Blacklist(ORMBase):
+class Blacklist(ORMBaseModel):
     __tablename__ = 'ctk_blacklists'
     username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
     blocked_users = Column(Text, nullable=False)
 
 
-class Contact(ORMBase):
+class Contact(ORMBaseModel):
     __tablename__ = 'ctk_user_contacts'
     username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
     contacts = Column(Text, nullable=False)
@@ -79,12 +79,11 @@ class RequestHandler(socketserver.BaseRequestHandler):
         if cursor.fetchall():
             return TEXT["username_already_in_use"]
         # If all parameters are met, add new user. Else tell client incomplete parameters.
-        if "mail-address" in parameters and "username" in parameters and "nickname" in parameters and \
-                        "password" in parameters and "fingerprint" in parameters:
-            query = "INSERT INTO ctk_users (mail, username, nickname, password, fingerprint) " \
-                    "VALUES (%s, %s, %s, %s, %s) "
-            cursor.execute(query, (parameters["mail-address"], parameters["username"], parameters["nickname"],
-                                   parameters["password"], parameters["fingerprint"]))
+        if "mail-address" in parameters and "username" in parameters and "nickname" in parameters \
+                and "password" in parameters and "fingerprint" in parameters:
+            db_session.add(User(mail=parameters['mail-address'], username=parameters['username'],
+                                nickname=parameters['nickname'], password=parameters['password'],
+                                fingerprint=parameters['fingerprint']))
             db_session.commit()
             return TEXT["successfully_registered"]
         else:
@@ -133,7 +132,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
             if "new-avatar" in parameters:
                 avatar = parameters["new-avatar"]
             try:
-                query = "UPDATE (nickname,password,signature,avatar) VALUES (%s,%s,%s,%s) in ctk_users WHERE username=%s"
+                query = "UPDATE (nickname,password,signature,avatar) VALUES (%s,%s,%s,%s)" \
+                        " in ctk_users WHERE username=%s"
                 cursor.execute(query, (nickname, password, signature, avatar))
                 db_session.commit()
                 return TEXT["successfully-updated-info"]
@@ -165,11 +165,9 @@ class RequestHandler(socketserver.BaseRequestHandler):
                     message["message"] = parameters["message"]
 
                     # Save message to database
-                    query = "INSERT INTO ctk_messages " \
-                            "(message_id, if_sent, type, time, sender,receiver,message,is_attachment) " \
-                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
-                    db_session.execute(query, (message["message_id"], False, message["type"], message["time"],
-                                               message["sender"], message["receiver"], message["message"], False))
+                    db_session.add(Message(message_id=message["message_id"], if_sent=False, type=message["type"],
+                                           time=message["time"], sender=message["sender"], receiver=message["receiver"],
+                                           message=message["message"], is_attachment=False))
                     db_session.commit()
 
                     return text("message_sent", message["message_id"])
@@ -179,11 +177,9 @@ class RequestHandler(socketserver.BaseRequestHandler):
                         f.write(parameters["data"])
 
                     # Save message to database
-                    query = "INSERT INTO ctk_messages " \
-                            "(message_id, if_sent, type, time, sender,receiver,is_attachment) " \
-                            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
-                    db_session.execute(query, (message["message_id"], False, message["type"], message["time"],
-                                               message["sender"], message["receiver"], True))
+                    db_session.add(Message(message_id=message["message_id"], if_sent=False, type=message["type"],
+                                           time=message["time"], sender=message["sender"], receiver=message["receiver"],
+                                           is_attachment=True))
                     db_session.commit()
 
                     return text("message_sent", message["message_id"])
@@ -315,7 +311,6 @@ class RemoveOfflineUserThread(threading.Thread):
 
 
 if __name__ == '__main__':
-
     # Start TCP server
     server = socketserver.ThreadingTCPServer((CONFIG.HOST, CONFIG.PORT), RequestHandler)
     print("[INFO]Sever started on port %s." % CONFIG.PORT)
@@ -329,5 +324,4 @@ if __name__ == '__main__':
             each_thread.start()
     except KeyboardInterrupt:
         server.shutdown()
-
         print("[INFO]Server stopped.")
