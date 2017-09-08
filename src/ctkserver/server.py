@@ -2,8 +2,10 @@ import socketserver
 import msgpack
 import os
 import time
-import mysql.connector
 import threading
+from sqlalchemy import Column, String, Boolean, Text, ForeignKey, create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 from ctkserver.commons import get_time, generate_md5
 from ctkserver.config import load_config
 from ctkserver.predefined_text import TEXT, text
@@ -11,172 +13,228 @@ from ctkserver.user import log_in, heartbeat
 
 CONFIG = load_config()
 LOGGED_IN_USERS = {}
+ORMBase = declarative_base()
+db_engine = create_engine('mysql+mysqlconnector://{}:{}@{}:{}/{}'
+                          .format(CONFIG.DB['user'], CONFIG.DB['password'],
+                                  CONFIG.DB['host'], CONFIG.DB['port'],
+                                  CONFIG.DB['database']),
+                          encoding='utf-8'
+                          )
+DBSession = sessionmaker(bind=db_engine)
 
 
-# Function name: action_user_register
-# Description: Handle register request from client
-# Return value: Json-like text
-def action_user_register(parameters, username=None):
-    query = "SELECT * FROM ctk_users WHERE username=%s"
-    cursor.execute(query, (parameters["username"],))
-    # If found entry, tell client that this username is already in use.
-    if cursor.fetchall():
-        return TEXT["username_already_in_use"]
-    # If all parameters are met, add new user. Else tell client incomplete parameters.
-    if "mail-address" in parameters and "username" in parameters and "nickname" in parameters and \
-                    "password" in parameters and "fingerprint" in parameters:
-        query = "INSERT INTO ctk_users (mail, username, nickname, password, fingerprint) " \
-                "VALUES (%s, %s, %s, %s, %s) "
-        cursor.execute(query, (parameters["mail-address"], parameters["username"], parameters["nickname"],
-                               parameters["password"], parameters["fingerprint"]))
-        mysql_conn.commit()
-        return TEXT["successfully_registered"]
-    else:
-        return TEXT['incomplete_parameters']
+class User(ORMBase):
+    __tablename__ = 'ctk_users'
+    mail = Column(String(255))
+    username = Column(String(40), primary_key=True)
+    nickname = Column(String(40))
+    password = Column(String(100), nullable=False)
+    fingerprint = Column(String(100), nullable=False)
+    avatar = Column(String(1024))
 
 
-# Function name: action_user_login
-# Description: Handle login request from client
-# Return value: Json-like text
-def action_user_login(parameters, username=None):
-    if "username" in parameters and "password" in parameters:
-        query = "SELECT password FROM ctk_users WHERE username=%s"
-        cursor.execute(query, (parameters["username"],))
-        fetch_result = cursor.fetchall()
-        if fetch_result:
-            if fetch_result[0][0] == parameters["password"]:
-                log_in(LOGGED_IN_USERS, parameters["username"])
-                return TEXT["successfully-login"]
-            else:
-                return TEXT["incorrect-password"]
-        else:
-            return TEXT["no-such-user"]
-    else:
-        return TEXT['incomplete_parameters']
+class Message(ORMBase):
+    __tablename__ = 'ctk_messages'
+    message_id = Column(String(255), primary_key=True)
+    if_sent = Column(Boolean, nullable=False)
+    type = Column(String(10), nullable=False)
+    time = Column(String(255), nullable=False)
+    sender = Column(String(40), ForeignKey('ctk_users.username'), nullable=False)
+    receiver = Column(String(40), ForeignKey('ctk_users.username'), nullable=False)
+    message = Column(Text)
+    is_attachment = Column(Boolean, nullable=False)
 
 
-# Function name: action_update_personal_info
-# Description: Handle update personal info request from client
-# Return value: Json-like text
-def action_update_personal_info(parameters, username=None):
-    query = "SELECT nickname,password,signature,avatar FROM ctk_users WHERE username=%s"
-    cursor.execute(query, (parameters["username"],))
-    fetch_result = cursor.fetchall()
-    if fetch_result:
-        nickname = fetch_result[0][0]
-        password = fetch_result[0][1]
-        signature = fetch_result[0][2]
-        avatar = fetch_result[0][3]
-        if "new-nickname" in parameters:
-            nickname = parameters["new-nickname"]
-        if "new-passwd" in parameters:
-            password = parameters["new-passwd"]
-        if "new-signature" in parameters:
-            signature = parameters["new-signature"]
-        if "new-avatar" in parameters:
-            avatar = parameters["new-avatar"]
-        try:
-            query = "UPDATE (nickname,password,signature,avatar) VALUES (%s,%s,%s,%s) in ctk_users WHERE username=%s"
-            cursor.execute(query, (nickname, password, signature, avatar))
-            mysql_conn.commit()
-            return TEXT["successfully-updated-info"]
-        except:
-            return TEXT["internal_error"]
-    else:
-        return TEXT["unexpected_behaviour"]
+class Attachment(ORMBase):
+    __tablename__ = 'ctk_attachments'
+    message_id = Column(String(255), ForeignKey('ctk_messages.message_id'), primary_key=True)
+    filename = Column(String(255), nullable=False)
 
 
-# Function name: action_send_message
-# Description: Handle messages sent from clients
-# Return value: Json-like text
-def action_send_message(parameters, username=None):
-    print("action_send_message:%s" % username)
-    if "type" in parameters and "time" in parameters and "receiver" in parameters:
-        # Validate type and sender
-        if parameters["type"] in CONFIG.AVAILABLE_MESSAGE_TYPE and parameters["sender"] == username:
-            message = {
-                'type': parameters['type'],
-                'time': parameters['time'],
-                'receiver': parameters['receiver'],
-                'sender': parameters['sender']
-            }
-            # Generate message_id
-            message["message_id"] = generate_md5(message["type"] + message["time"] + message["sender"] +
-                                                 message["receiver"])
-            if parameters["type"] == "text":
-                message["message"] = parameters["message"]
-
-                # Save message to database
-                query = "INSERT INTO ctk_messages " \
-                        "(message_id, if_sent, type, time, sender,receiver,message,is_attachment) " \
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
-                cursor.execute(query, (message["message_id"], False, message["type"], message["time"],
-                                       message["sender"], message["receiver"], message["message"], False))
-                mysql_conn.commit()
-
-                return text("message_sent", message["message_id"])
-            else:
-                # Save file to local
-                with open(os.path.join(os.getcwd(), "attachments/{}".format(message["message_id"])), 'wb') as f:
-                    f.write(parameters["data"])
-
-                # Save message to database
-                query = "INSERT INTO ctk_messages " \
-                        "(message_id, if_sent, type, time, sender,receiver,is_attachment) " \
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s) "
-                cursor.execute(query, (message["message_id"], False, message["type"], message["time"],
-                                       message["sender"], message["receiver"], True))
-                mysql_conn.commit()
-
-                return text("message_sent", message["message_id"])
-        else:
-            return TEXT["unexpected_behaviour"]
-    else:
-        return TEXT['incomplete_parameters']
+class Blacklist(ORMBase):
+    __tablename__ = 'ctk_blacklists'
+    username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
+    blocked_users = Column(Text, nullable=False)
 
 
-# Function name: action_heartbeat
-# Description: Handle heartbeat from client
-# Return value: Json-like text
-def action_heartbeat(parameters, username=None):
-    if username:
-        heartbeat(LOGGED_IN_USERS, username)
-        return TEXT["heartbeat"]
-    else:
-        return TEXT["unexpected_behaviour"]
-
-
-# Function name: do_action
-# Description: Select an specific action to do
-# Return value: a dict to return to client
-def do_action(action, parameters, username=None):
-    print("do_action username:%s" % username)
-    actions = {
-        "user-register": action_user_register,
-        "user-login": action_user_login,
-        "update-personal-info": action_update_personal_info,
-        "send-message": action_send_message,
-        "heartbeat": action_heartbeat,
-    }
-    if action in actions:
-        # If logged in, pass to specific action function
-        if username:
-            return actions[action](parameters, username=username)
-        # If not logged in and the request doesn't require to be logged in
-        elif action == "user-login" or action == "user-register":
-            return actions[action](parameters)
-        # If not logged in and the request needs to be logged in
-        else:
-            return text("not_login")
-    # Action not found
-    else:
-        return TEXT["no_such_action"]
+class Contact(ORMBase):
+    __tablename__ = 'ctk_user_contacts'
+    username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
+    contacts = Column(Text, nullable=False)
 
 
 # Class: RequestHandler
 # Description: Handle each client
 class RequestHandler(socketserver.BaseRequestHandler):
+    # Function name: action_user_register
+    # Description  : Handle register request from client
+    # Return value : TEXT['incomplete_parameters'], TEXT["successfully_registered"] or TEXT["username_already_in_use"]
+    @staticmethod
+    def action_user_register(db_session, parameters, username=None):
+        # user = db_session.query(User).filter(User.username == parameters["username"]).one()
+        # print(user)
+        query = "SELECT * FROM ctk_users WHERE username=%s"
+        cursor = db_engine.execute(query, (parameters["username"],))
+        # If found entry, tell client that this username is already in use.
+        if cursor.fetchall():
+            return TEXT["username_already_in_use"]
+        # If all parameters are met, add new user. Else tell client incomplete parameters.
+        if "mail-address" in parameters and "username" in parameters and "nickname" in parameters and \
+                        "password" in parameters and "fingerprint" in parameters:
+            query = "INSERT INTO ctk_users (mail, username, nickname, password, fingerprint) " \
+                    "VALUES (%s, %s, %s, %s, %s) "
+            cursor.execute(query, (parameters["mail-address"], parameters["username"], parameters["nickname"],
+                                   parameters["password"], parameters["fingerprint"]))
+            db_session.commit()
+            return TEXT["successfully_registered"]
+        else:
+            return TEXT['incomplete_parameters']
+
+    # Function name: action_user_login
+    # Description  : Handle login request from client
+    # Return value : TEXT['incomplete_parameters'], TEXT["no-such-user"], TEXT["incorrect-password"] or
+    #                TEXT["successfully-login"]
+    @staticmethod
+    def action_user_login(db_session, parameters, username=None):
+        if "username" in parameters and "password" in parameters:
+            query = "SELECT password FROM ctk_users WHERE username=%s"
+            cursor = db_engine.execute(query, (parameters["username"],))
+            fetch_result = cursor.fetchall()
+            if fetch_result:
+                if fetch_result[0][0] == parameters["password"]:
+                    log_in(LOGGED_IN_USERS, parameters["username"])
+                    return TEXT["successfully-login"]
+                else:
+                    return TEXT["incorrect-password"]
+            else:
+                return TEXT["no-such-user"]
+        else:
+            return TEXT['incomplete_parameters']
+
+    # Function name: action_update_personal_info
+    # Description  : Handle update personal info request from client
+    # Return value : TEXT["unexpected_behaviour"], TEXT["internal_error"] or TEXT["successfully-updated-info"]
+    @staticmethod
+    def action_update_personal_info(db_session, parameters, username=None):
+        query = "SELECT nickname,password,signature,avatar FROM ctk_users WHERE username=%s"
+        cursor = db_engine.execute(query, (parameters["username"],))
+        fetch_result = cursor.fetchall()
+        if fetch_result:
+            nickname = fetch_result[0][0]
+            password = fetch_result[0][1]
+            signature = fetch_result[0][2]
+            avatar = fetch_result[0][3]
+            if "new-nickname" in parameters:
+                nickname = parameters["new-nickname"]
+            if "new-passwd" in parameters:
+                password = parameters["new-passwd"]
+            if "new-signature" in parameters:
+                signature = parameters["new-signature"]
+            if "new-avatar" in parameters:
+                avatar = parameters["new-avatar"]
+            try:
+                query = "UPDATE (nickname,password,signature,avatar) VALUES (%s,%s,%s,%s) in ctk_users WHERE username=%s"
+                cursor.execute(query, (nickname, password, signature, avatar))
+                db_session.commit()
+                return TEXT["successfully-updated-info"]
+            except:
+                return TEXT["internal_error"]
+        else:
+            return TEXT["unexpected_behaviour"]
+
+    # Function name: action_send_message
+    # Description  : Handle messages sent from clients
+    # Return value : TEXT['incomplete_parameters'], TEXT["unexpected_behaviour"] or
+    #                text("message_sent", message["message_id"])
+    @staticmethod
+    def action_send_message(db_session, parameters, username=None):
+        print("action_send_message:%s" % username)
+        if "type" in parameters and "time" in parameters and "receiver" in parameters:
+            # Validate type and sender
+            if parameters["type"] in CONFIG.AVAILABLE_MESSAGE_TYPE and parameters["sender"] == username:
+                message = {
+                    'type': parameters['type'],
+                    'time': parameters['time'],
+                    'receiver': parameters['receiver'],
+                    'sender': parameters['sender']
+                }
+                # Generate message_id
+                message["message_id"] = generate_md5(message["type"] + message["time"] + message["sender"] +
+                                                     message["receiver"])
+                if parameters["type"] == "text":
+                    message["message"] = parameters["message"]
+
+                    # Save message to database
+                    query = "INSERT INTO ctk_messages " \
+                            "(message_id, if_sent, type, time, sender,receiver,message,is_attachment) " \
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+                    db_session.execute(query, (message["message_id"], False, message["type"], message["time"],
+                                               message["sender"], message["receiver"], message["message"], False))
+                    db_session.commit()
+
+                    return text("message_sent", message["message_id"])
+                else:
+                    # Save file to local
+                    with open(os.path.join(os.getcwd(), "attachments/{}".format(message["message_id"])), 'wb') as f:
+                        f.write(parameters["data"])
+
+                    # Save message to database
+                    query = "INSERT INTO ctk_messages " \
+                            "(message_id, if_sent, type, time, sender,receiver,is_attachment) " \
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                    db_session.execute(query, (message["message_id"], False, message["type"], message["time"],
+                                               message["sender"], message["receiver"], True))
+                    db_session.commit()
+
+                    return text("message_sent", message["message_id"])
+            else:
+                return TEXT["unexpected_behaviour"]
+        else:
+            return TEXT['incomplete_parameters']
+
+    # Function name: action_heartbeat
+    # Description  : Handle heartbeat from client
+    # Return value : TEXT["heartbeat"] or TEXT["unexpected_behaviour"]
+    @staticmethod
+    def action_heartbeat(db_session, parameters, username=None):
+        if username:
+            heartbeat(LOGGED_IN_USERS, username)
+            return TEXT["heartbeat"]
+        else:
+            return TEXT["unexpected_behaviour"]
+
+    # Function name: do_action
+    # Description  : Select an specific action to do
+    # Return value : a dict to return to client
+    @staticmethod
+    def do_action(db_session, action, parameters, username=None):
+        print("do_action username:%s" % username)
+        actions = {
+            "user-register": RequestHandler.action_user_register,
+            "user-login": RequestHandler.action_user_login,
+            "update-personal-info": RequestHandler.action_update_personal_info,
+            "send-message": RequestHandler.action_send_message,
+            "heartbeat": RequestHandler.action_heartbeat,
+        }
+        if action in actions:
+            # If logged in, pass to specific action function
+            if username:
+                return actions[action](db_session, parameters, username=username)
+            # If not logged in and the request doesn't require to be logged in
+            elif action == "user-login" or action == "user-register":
+                return actions[action](db_session, parameters)
+            # If not logged in and the request needs to be logged in
+            else:
+                return text("not_login")
+        # Action not found
+        else:
+            return TEXT["no_such_action"]
+
+    # Function name: handle
+    # Description  : Rewrite handle method of RequestHandler
+    # Return value : No return value
     def handle(self):
+        db_session = DBSession()
         sock = self.request
         address = self.client_address
         print("[INFO]{} connected.".format(address))
@@ -198,10 +256,11 @@ class RequestHandler(socketserver.BaseRequestHandler):
                         break
                     else:
                         if "username" in locals().keys():
-                            send_data = do_action(accept_data["action"], accept_data["parameters"],
-                                                  username=username)
+                            send_data = RequestHandler.do_action(db_session, accept_data["action"],
+                                                                 accept_data["parameters"], username=username)
                         else:
-                            send_data = do_action(accept_data["action"], accept_data["parameters"])
+                            send_data = RequestHandler.do_action(db_session, accept_data["action"],
+                                                                 accept_data["parameters"])
                         send_data_json = msgpack.dumps(send_data)
 
                         # if successfully log in, save username to variable username
@@ -233,6 +292,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 break
         print("[INFO]Socket close.")
         sock.close()
+        db_session.close()
 
 
 # Class: SendingThread
@@ -255,9 +315,6 @@ class RemoveOfflineUserThread(threading.Thread):
 
 
 if __name__ == '__main__':
-    # Connect to database
-    mysql_conn = mysql.connector.connect(**CONFIG.MYSQL_CONFIG)
-    cursor = mysql_conn.cursor()
 
     # Start TCP server
     server = socketserver.ThreadingTCPServer((CONFIG.HOST, CONFIG.PORT), RequestHandler)
@@ -272,6 +329,5 @@ if __name__ == '__main__':
             each_thread.start()
     except KeyboardInterrupt:
         server.shutdown()
-        cursor.close()
-        mysql_conn.close()
+
         print("[INFO]Server stopped.")

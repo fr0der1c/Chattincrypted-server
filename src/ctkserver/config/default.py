@@ -4,7 +4,7 @@ class Config(object):
     BUFSIZE = 1024
     ENCODE = "utf8"
     AVAILABLE_MESSAGE_TYPE = ["image", "file", "voice", "text"]
-    MYSQL_CONFIG = {
+    DB = {
         'user': 'chattincrypted_user',
         'password': 'chattincrypted_pwd',
         'host': '127.0.0.1',
