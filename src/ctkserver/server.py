@@ -79,36 +79,6 @@ class Contact(ORMBaseModel):
         return "<Contact of `{}`:{}>".format(self.username, self.contacts)
 
 
-# Class      : AddingMessageToSendQueueThread
-# Description: Check if logged in users have new message and
-#              add their messages to MESSAGES_TO_SEND queue.
-class AddingMessageToSendQueueThread(threading.Thread):
-    def run(self):
-        while True:
-            db_session = DBSession()
-            for (k, v) in LOGGED_IN_USERS.items():
-                messages = db_session.query(Message).filter(Message.receiver == k).all()
-                for single_message in messages:
-                    # Messages sent in 10 seconds won't be send again
-                    print(single_message)
-                    print("datetime.datetime.now():%s" % datetime.datetime.now())
-                    print("single_message.last_send_time:%s" % single_message.last_send_time)
-                    print(datetime.datetime.now() - single_message.last_send_time)
-                    if datetime.datetime.now() - single_message.last_send_time > datetime.timedelta(seconds=10):
-                        if k in MESSAGES_TO_SEND:
-                            # todo change MESSAGES_TO_SEND[single_message.receiver] to a dict
-                            # todo but 未使用线程锁导致 dictionary changed size during iteration
-                            if single_message.message_id not in MESSAGES_TO_SEND[k]:
-                                MESSAGES_TO_SEND[k][single_message.message_id] = single_message
-                                print("append after")
-                        else:
-                            MESSAGES_TO_SEND[k] = {single_message.message_id: single_message}
-                            print("append first")
-
-            time.sleep(1)
-            db_session.close()
-
-
 # Class      : RemoveOfflineUserThread
 # Description: Remove offline users from LOGGED_IN_USERS every 30 seconds
 class RemoveOfflineUserThread(threading.Thread):
@@ -279,45 +249,48 @@ class RequestHandler(socketserver.BaseRequestHandler):
             return text("not_login")
 
     # Function name: forwardly_sending_message_thread
-    # Description  : Thread for forwardly sending user message EVERY SECOND
+    # Description  : Thread for forwardly sending user message EVERY 0.5 SECOND
     # Return value : no return value
     @staticmethod
     def forwardly_sending_message_thread(sock, db_session, current_user):
+        flag_to_quit = False
         while True:
             # If logged in and have message in MESSAGES_TO_SEND
-            if current_user and current_user[0] in MESSAGES_TO_SEND:
-                message_to_send_copy = MESSAGES_TO_SEND.copy()
-                for (each_message_id, each_message) in message_to_send_copy[current_user[0]].items():
-                    # Send message
-                    msg_to_send = {
-                        "action": "receive-message",
-                        "parameters": {
-                            "message_id": each_message.message_id,
-                            "type": each_message.type,
-                            "sender": each_message.sender,
-                            "time": each_message.time,
+            if current_user:
+                messages = db_session.query(Message).filter(Message.receiver == current_user).all()
+                for each_message in messages:
+                    if datetime.datetime.now() - each_message.last_send_time > datetime.timedelta(seconds=10):
+                        print(each_message)
+                        # Send message
+                        msg_to_send = {
+                            "action": "receive-message",
+                            "parameters": {
+                                "message_id": each_message.message_id,
+                                "type": each_message.type,
+                                "sender": each_message.sender,
+                                "time": each_message.time,
+                            }
                         }
-                    }
-                    if each_message.type == "text":
-                        msg_to_send["message"] = each_message.message
-                    else:
-                        pass
-                        # todo:file handle
-                    try:
-                        sock.sendall(msgpack.dumps(msg_to_send))
-                    except BrokenPipeError:
-                        # Client closed connection
-                        break
+                        if each_message.type == "text":
+                            msg_to_send["message"] = each_message.message
+                        else:
+                            pass
+                            # todo:file handle
+                        try:
+                            sock.sendall(msgpack.dumps(msg_to_send))
+                        except BrokenPipeError:
+                            # Client closed connection
+                            flag_to_quit = True
+                            break
 
-                    # Update last_send_time of message
-                    db_session.query(Message) \
-                        .filter(Message.message_id == each_message.message_id) \
-                        .update({"last_send_time": datetime.datetime.now()})
-                    db_session.commit()
-
-                    # Pop message
-                    MESSAGES_TO_SEND[current_user[0]].pop(each_message_id)
-                time.sleep(0.5)
+                        # Update last_send_time of message
+                        db_session.query(Message) \
+                            .filter(Message.message_id == each_message.message_id) \
+                            .update({"last_send_time": datetime.datetime.now()})
+                        db_session.commit()
+            if flag_to_quit:
+                break
+            time.sleep(0.5)
 
     # Function name: handle_user_request_thread
     # Description  : Thread for handling user requests
@@ -327,18 +300,17 @@ class RequestHandler(socketserver.BaseRequestHandler):
         while True:
             try:
                 recv = sock.recv(CONFIG.BUFSIZE)
-                accept_data_json = recv
+                accept_data = msgpack.loads(recv, encoding='utf-8')
+                if recv:
+                    print("[INFO]Accepted data %s." % accept_data)
 
                 # If logged in, tell him who he is
                 if current_user:
                     send_data_json = msgpack.dumps("This is %s" % current_user[0])
                     sock.sendall(send_data_json)
 
-                accept_data = msgpack.loads(accept_data_json, encoding='utf-8')
-                if accept_data_json:
-                    print("[INFO]Accepted data %s." % accept_data)
                 if "parameters" not in accept_data or "action" not in accept_data:
-                    send_data_json = msgpack.dumps(TEXT['incomplete_parameters'])
+                    send_data = TEXT['incomplete_parameters']
 
                 # If Bye-bye
                 if accept_data["action"] == "Bye-bye":
@@ -352,9 +324,9 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 else:
                     send_data = RequestHandler.do_action(db_session, accept_data["action"],
                                                          accept_data["parameters"])
-                send_data_json = msgpack.dumps(send_data)
-                if send_data_json:
-                    sock.sendall(send_data_json)
+
+                if send_data:
+                    sock.sendall(msgpack.dumps(send_data))
 
                 # if successfully log in, save username to variable username
                 if send_data["description"] == "Login successfully":
@@ -363,11 +335,11 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
             except msgpack.exceptions.UnpackValueError:
                 # Client closed connection
-                print("[INFO]Client closed the connection.")
+                print("[INFO]Client closed the connection(msgpack.exceptions.UnpackValueError).")
                 break
             except msgpack.exceptions.ExtraData:
                 # Not a msgpack file
-                print("[EXCEPTION]Not a msgpack file")
+                print("[EXCEPTION]Not a msgpack file(msgpack.exceptions.ExtraData)")
                 break
             except ConnectionResetError:
                 # Client trying to connect, but server closed the connection
@@ -375,7 +347,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 break
             except BrokenPipeError:
                 # Server trying to write to socket, but client closed the connection
-                print("[INFO]Client closed the connection.")
+                print("[INFO]Client closed the connection(BrokenPipeError).")
                 break
             except OSError as e:
                 print("[ERROR]OS ERROR %s." % e)
@@ -413,7 +385,7 @@ if __name__ == '__main__':
     print("[INFO]Sever started on port %s." % CONFIG.PORT)
     try:
         # Open threads for sending messages and removing offline users
-        threads = [AddingMessageToSendQueueThread(), RemoveOfflineUserThread()]
+        threads = [RemoveOfflineUserThread()]
         for each_thread in threads:
             each_thread.start()
 
