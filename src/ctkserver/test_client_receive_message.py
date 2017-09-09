@@ -27,24 +27,6 @@ class ReceivingThread(threading.Thread):
                 break
 
 
-class SendingThread(threading.Thread):
-    def run(self):
-        print("Sending thread start")
-        time.sleep(2)
-        data_json = {
-            "action": "send-message",
-            "parameters": {
-                "type": "text",
-                "message": "message",
-                "receiver": "lavender",
-                "time1": "time",
-                "time":int(round(time.time()*1000)),
-            }
-        }
-        data_2 = msgpack.dumps(data_json)
-        tcpCliSock.sendall(data_2)
-
-
 if __name__ == '__main__':
     data_json = {
         "action": "user-login",
@@ -56,12 +38,10 @@ if __name__ == '__main__':
     data = msgpack.dumps(data_json)
     tcpCliSock.sendall(data)
 
-    sender = SendingThread()
     refresher = ReceivingThread()
 
     refresher.start()
-    sender.start()
+
     refresher.join()
-    sender.join()
 
     tcpCliSock.close()

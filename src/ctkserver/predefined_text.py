@@ -6,6 +6,7 @@ TEXT = {
     "incorrect-password": {"status": "failed", "description": "Incorrect password"},
     "bye-bye": {"status": "success", "description": "Bye-bye"},
     "unexpected_behaviour": {"status": "failed", "description": "Unexpected behaviour"},
+    "duplicated_message":{"status": "failed", "description": "Duplicated message %s"},
     "not_login": {"status": "failed", "description": "Not login"},
     "internal_error": {"status": "failed", "description": "Server internal error"},
     "successfully_registered": {"status": "success", "description": "Successfully registered"},
