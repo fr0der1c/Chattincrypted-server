@@ -14,7 +14,6 @@ from ctkserver.user import log_in, heartbeat
 
 CONFIG = load_config()
 LOGGED_IN_USERS = {}
-MESSAGES_TO_SEND = {}
 ORMBaseModel = declarative_base()
 db_engine = create_engine('mysql+pymysql://{}:{}@{}:{}/{}'
                           .format(CONFIG.DB['user'], CONFIG.DB['password'],
@@ -32,6 +31,7 @@ class User(ORMBaseModel):
     nickname = Column(String(40))
     password = Column(String(100), nullable=False)
     fingerprint = Column(String(100), nullable=False)
+    signature = Column(String(100))
     avatar = Column(String(1024))
 
     def __repr__(self):
@@ -147,6 +147,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
             if "new-signature" in parameters:
                 user.signature = parameters["new-signature"]
             if "new-avatar" in parameters:
+                # todo save avatar data
                 user.avatar = parameters["new-avatar"]
             db_session.commit()
             return TEXT["successfully-updated-info"]
@@ -156,7 +157,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Function name: action_send_message
     # Description  : Handle messages sent from clients
     # Return value : TEXT['incomplete_parameters'], TEXT["unexpected_behaviour"] or
-    #                text("message_sent", message["message_id"])
+    #                text("message_sent")
     @staticmethod
     def action_send_message(db_session, parameters, username=None):
         if "type" not in parameters or "time" not in parameters or "receiver" not in parameters:
@@ -188,6 +189,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
             return text("message_sent", message["message_id"])
         else:
+            # todo test file receive here
             # Save file to local
             with open(os.path.join(os.getcwd(), "attachments/{}".format(message["message_id"])), 'wb') as f:
                 f.write(parameters["data"])
@@ -259,8 +261,9 @@ class RequestHandler(socketserver.BaseRequestHandler):
             if current_user:
                 messages = db_session.query(Message).filter(Message.receiver == current_user).all()
                 for each_message in messages:
-                    if datetime.datetime.now() - each_message.last_send_time > datetime.timedelta(seconds=10):
-                        print(each_message)
+                    if not each_message.last_send_time \
+                            or datetime.datetime.now() - each_message.last_send_time > datetime.timedelta(seconds=10):
+                        print("Send message %s" % each_message)
                         # Send message
                         msg_to_send = {
                             "action": "receive-message",
