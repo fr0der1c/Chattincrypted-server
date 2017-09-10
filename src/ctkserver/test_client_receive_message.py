@@ -1,10 +1,9 @@
-# Echo client program
 from socket import *
 from ctkserver.config import load_config
+from ctkserver.commons import recv_msg, send_msg
+
 import msgpack
 import threading
-import datetime
-import time
 
 CONFIG = load_config()
 
@@ -21,27 +20,20 @@ class ReceivingThread(threading.Thread):
     def run(self):
         print("Receiving thread start")
         while True:
-            data = msgpack.loads(tcpCliSock.recv(BUFSIZE), encoding="utf-8")
-            print("Received data:%s" % data)
-            if data == {"status": "success", "description": "Bye-bye"}:
-                break
+            recv = recv_msg(tcpCliSock)
+            if recv:
+                print("Received data:%s" % recv)
+                data = msgpack.loads(recv, encoding="utf-8")
+                if data == {"status": "success", "description": "Bye-bye"}:
+                    break
 
 
 if __name__ == '__main__':
-    data_json = {
-        "action": "user-login",
-        "parameters": {
-            "username": "lavender",
-            "password": "pass_lavender",
-        }
-    }
-    data = msgpack.dumps(data_json)
-    tcpCliSock.sendall(data)
+    data = msgpack.dumps(CONFIG.data_login_lavender)
+    send_msg(tcpCliSock, data)
 
     refresher = ReceivingThread()
-
     refresher.start()
-
     refresher.join()
 
     tcpCliSock.close()

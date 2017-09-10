@@ -39,7 +39,7 @@ class SendingThread(threading.Thread):
                     "type": "file",
                     "data": f.read(),
                     "receiver": "frederic",
-                    "time1": "time",
+                    "filename": "test.png",
                     "time": int(round(time.time() * 1000)),
                 }
             }

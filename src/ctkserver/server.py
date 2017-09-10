@@ -1,8 +1,9 @@
+# server.py
+# Description: main server
 import socketserver
 import msgpack
 import os
 import time
-import struct
 import threading
 import datetime
 from sqlalchemy import Column, String, Boolean, Text, TIMESTAMP, ForeignKey, create_engine
@@ -136,7 +137,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
     # Function name: action_update_personal_info
     # Description  : Handle update personal info request from client
-    # Return value : TEXT["unexpected_behaviour"], TEXT["internal_error"] or TEXT["successfully-updated-info"]
+    # Return value : TEXT["unexpected_behaviour"] or TEXT["successfully-updated-info"]
     @staticmethod
     def action_update_personal_info(db_session, parameters, username=None):
         me = db_session.query(User).filter(User.username == username).first()
@@ -203,7 +204,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
             db_session.add(Message(message_id=message["message_id"], type=message["type"],
                                    time=message["time"], sender=message["sender"],
                                    receiver=message["receiver"]))
-            db_session.add(Attachment(message_id=message["message_id"]), filename=parameters["filename"])
+            db_session.add(Attachment(message_id=message["message_id"], filename=parameters["filename"]))
             db_session.commit()
 
             return text("message_sent", message["message_id"])
@@ -248,8 +249,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
             "user-login": RequestHandler.action_user_login,
             "update-personal-info": RequestHandler.action_update_personal_info,
             "send-message": RequestHandler.action_send_message,
-            "heartbeat": RequestHandler.action_heartbeat,
             "message-received": RequestHandler.action_message_received,
+            "heartbeat": RequestHandler.action_heartbeat,
         }
         if action not in actions:
             return TEXT["no_such_action"]
@@ -268,7 +269,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
     def forwardly_sending_message_thread(sock, db_session, current_user):
         flag_to_quit = False
         while True:
-            # If logged in and have message in MESSAGES_TO_SEND
+            # If logged in and have message to send
             if current_user:
                 messages = db_session.query(Message).filter(Message.receiver == current_user).all()
                 for each_message in messages:
@@ -288,12 +289,16 @@ class RequestHandler(socketserver.BaseRequestHandler):
                         if each_message.type == "text":
                             msg_to_send["message"] = each_message.message
                         else:
+                            attachment = db_session.query(Attachment) \
+                                .filter(Attachment.message_id == each_message.message_id).first()
+                            msg_to_send["filename"] = attachment.filename
                             with open(os.path.join(os.getcwd(),
-                                                   "attachments/{}".format(each_message.message_id),"rb")
+                                                   "attachments/{}".format(each_message.message_id)), "rb"
                                       ) as f:
                                 msg_to_send["data"] = f.read()
                         try:
-                            send_msg(sock, msgpack.dumps(msg_to_send))
+                            print("msg_to_send:%s" % msgpack.dumps(msg_to_send))
+                            send_msg(sock, msgpack.dumps(msg_to_send, use_bin_type=True))
                         except BrokenPipeError:
                             # Client closed connection
                             flag_to_quit = True
@@ -318,7 +323,10 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 recv = recv_msg(sock)
                 if recv:
                     accept_data = msgpack.loads(recv, encoding='utf-8')
-                    print("[INFO]Accepted data %s." % accept_data)
+                    if len(accept_data) > 500:
+                        print("[INFO]Accepted data %s...%s" % (accept_data[0:50], accept_data[-50:-1]))
+                    else:
+                        print("[INFO]Accepted data %s." % accept_data)
 
                     # If logged in, tell him who he is
                     if current_user:

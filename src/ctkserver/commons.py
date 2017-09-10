@@ -1,13 +1,11 @@
 # commons.py
-# Common operations
+# Description: Common operations
+import struct
 
 
 # Function name: get_time
 # Description: Get timestamp of now
 # Return value: timestamp(s)
-import struct
-
-
 def get_time():
     import time
     now = int(time.time())
@@ -72,4 +70,4 @@ def recv_msg(sock):
     if msg_len < 1024 * 1024 * 21:
         return recv_all(sock, msg_len)
     else:
-        return None
+        return recv_all(sock, msg_len)

@@ -1,6 +1,6 @@
-# Echo client program
 from socket import *
 from ctkserver.config import load_config
+from ctkserver.commons import recv_msg, send_msg
 import msgpack
 
 CONFIG = load_config()
@@ -17,18 +17,18 @@ data_json = {
     "action": "user-login",
     "parameters": {
         "username": "frederic",
-        "password": "pass_frederic",
+        "password": "pass",
     }
 }
 data = msgpack.dumps(data_json)
 
-tcpCliSock.sendall(data)
+send_msg(tcpCliSock, data)
 
 while True:
-    data = msgpack.loads(tcpCliSock.recv(BUFSIZE), encoding="utf-8")
-    print("Received data:%s" % data)
-
-    if data == {"status": "success", "description": "Bye-bye"}:
-        break
-
-tcpCliSock.close()
+    recv = recv_msg(tcpCliSock)
+    if recv:
+        print(recv)
+        data = msgpack.loads(recv, encoding="utf-8")
+        print("Received data:%s" % data)
+        if data == {"status": "success", "description": "Bye-bye"}:
+            break
