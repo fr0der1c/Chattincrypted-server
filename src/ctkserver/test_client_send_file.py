@@ -48,14 +48,7 @@ class SendingThread(threading.Thread):
 
 
 if __name__ == '__main__':
-    data_json = {
-        "action": "user-login",
-        "parameters": {
-            "username": "lavender",
-            "password": "pass_lavender",
-        }
-    }
-    data = msgpack.dumps(data_json)
+    data = msgpack.dumps(CONFIG.data_login_lavender)
     send_msg(tcpCliSock, data)
 
     sender = SendingThread()

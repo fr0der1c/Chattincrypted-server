@@ -13,14 +13,7 @@ ADDR = (HOST, PORT)
 tcpCliSock = socket(AF_INET, SOCK_STREAM)
 tcpCliSock.connect(ADDR)
 
-data_json = {
-    "action": "user-login",
-    "parameters": {
-        "username": "frederic",
-        "password": "pass",
-    }
-}
-data = msgpack.dumps(data_json)
+data = msgpack.dumps(CONFIG.data_login_lavender)
 
 send_msg(tcpCliSock, data)
 
