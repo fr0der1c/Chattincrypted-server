@@ -31,17 +31,18 @@ class SendingThread(threading.Thread):
     def run(self):
         print("Sending thread start")
         time.sleep(2)
-        data_json = {
-            "action": "send-message",
-            "parameters": {
-                "type": "file",
-                "message": b"message",
-                "receiver": "lavender",
-                "time1": "time",
-                "time": int(round(time.time() * 1000)),
+        with open('test_image.png', 'rb') as f:
+            data_json = {
+                "action": "send-message",
+                "parameters": {
+                    "type": "file",
+                    "data": f.read(),
+                    "receiver": "frederic",
+                    "time1": "time",
+                    "time": int(round(time.time() * 1000)),
+                }
             }
-        }
-        data_2 = msgpack.dumps(data_json)
+        data_2 = msgpack.dumps(data_json, use_bin_type=True)
         tcpCliSock.sendall(data_2)
 
 

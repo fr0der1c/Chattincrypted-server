@@ -2,12 +2,13 @@ import socketserver
 import msgpack
 import os
 import time
+import struct
 import threading
 import datetime
 from sqlalchemy import Column, String, Boolean, Text, TIMESTAMP, ForeignKey, create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from ctkserver.commons import get_time, generate_md5
+from ctkserver.commons import get_time, generate_md5, recv_msg, send_msg
 from ctkserver.config import load_config
 from ctkserver.predefined_text import TEXT, text
 from ctkserver.user import log_in, heartbeat
@@ -164,6 +165,9 @@ class RequestHandler(socketserver.BaseRequestHandler):
             return TEXT['incomplete_parameters']
         if parameters["type"] not in CONFIG.AVAILABLE_MESSAGE_TYPE:
             return TEXT['unexpected_behaviour']
+        if (parameters["type"] == "text" and "message" not in parameters) or \
+                (parameters["type"] != "text" and "data" not in parameters):
+            return TEXT['incomplete_parameters']
         if not db_session.query(User).filter(User.username == parameters["receiver"]).first():
             return TEXT['unexpected_behaviour']
         message = {
@@ -189,7 +193,6 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
             return text("message_sent", message["message_id"])
         else:
-            # todo test file receive here
             # Save file to local
             with open(os.path.join(os.getcwd(), "attachments/{}".format(message["message_id"])), 'wb') as f:
                 f.write(parameters["data"])
@@ -213,6 +216,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
         if message.receiver == username:
             db_session.delete(message)
             db_session.commit()
+            # todo delete attachment from server
 
     # Function name: action_heartbeat
     # Description  : Handle heartbeat from client
@@ -280,7 +284,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
                             pass
                             # todo:file handle
                         try:
-                            sock.sendall(msgpack.dumps(msg_to_send))
+                            send_msg(sock, msgpack.dumps(msg_to_send))
                         except BrokenPipeError:
                             # Client closed connection
                             flag_to_quit = True
@@ -302,39 +306,38 @@ class RequestHandler(socketserver.BaseRequestHandler):
     def handle_user_request_thread(sock, db_session, current_user):
         while True:
             try:
-                recv = sock.recv(CONFIG.BUFSIZE)
-                accept_data = msgpack.loads(recv, encoding='utf-8')
+                recv = recv_msg(sock)
                 if recv:
+                    accept_data = msgpack.loads(recv, encoding='utf-8')
                     print("[INFO]Accepted data %s." % accept_data)
 
-                # If logged in, tell him who he is
-                if current_user:
-                    send_data_json = msgpack.dumps("This is %s" % current_user[0])
-                    sock.sendall(send_data_json)
-
-                if "parameters" not in accept_data or "action" not in accept_data:
-                    send_data = TEXT['incomplete_parameters']
-
-                # If Bye-bye
-                if accept_data["action"] == "Bye-bye":
+                    # If logged in, tell him who he is
                     if current_user:
-                        LOGGED_IN_USERS.pop(current_user[0])
-                    break
+                        send_msg(sock, msgpack.dumps("This is %s" % current_user[0]))
 
-                if current_user:
-                    send_data = RequestHandler.do_action(db_session, accept_data["action"],
-                                                         accept_data["parameters"], username=current_user[0])
-                else:
-                    send_data = RequestHandler.do_action(db_session, accept_data["action"],
-                                                         accept_data["parameters"])
+                    if "parameters" not in accept_data or "action" not in accept_data:
+                        send_data = TEXT['incomplete_parameters']
 
-                if send_data:
-                    sock.sendall(msgpack.dumps(send_data))
+                    # If Bye-bye
+                    if accept_data["action"] == "Bye-bye":
+                        if current_user:
+                            LOGGED_IN_USERS.pop(current_user[0])
+                        break
 
-                # if successfully log in, save username to variable username
-                if send_data["description"] == "Login successfully":
-                    current_user.append(accept_data["parameters"]["username"])
-                    print("[INFO]User {} logged in.".format(current_user[0]))
+                    if current_user:
+                        send_data = RequestHandler.do_action(db_session, accept_data["action"],
+                                                             accept_data["parameters"], username=current_user[0])
+                    else:
+                        send_data = RequestHandler.do_action(db_session, accept_data["action"],
+                                                             accept_data["parameters"])
+
+                    if send_data:
+                        send_msg(sock, msgpack.dumps(send_data))
+
+                    # if successfully log in, save username to variable username
+                    if send_data["description"] == "Login successfully":
+                        current_user.append(accept_data["parameters"]["username"])
+                        print("[INFO]User {} logged in.".format(current_user[0]))
 
             except msgpack.exceptions.UnpackValueError:
                 # Client closed connection

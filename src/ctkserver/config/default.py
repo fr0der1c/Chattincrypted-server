@@ -1,7 +1,7 @@
 class Config(object):
     HOST = "127.0.0.1"
     PORT = 50008
-    BUFSIZE = 1024
+    BUFSIZE = 10240000
     ENCODE = "utf8"
     DEBUG = False
     AVAILABLE_MESSAGE_TYPE = ["image", "file", "voice", "text"]
