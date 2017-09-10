@@ -33,7 +33,7 @@ class User(ORMBaseModel):
     password = Column(String(100), nullable=False)
     fingerprint = Column(String(100), nullable=False)
     signature = Column(String(100))
-    avatar = Column(String(1024))
+    avatar = Column(Boolean)
 
     def __repr__(self):
         return "<User `{}`>".format(self.username)
@@ -139,17 +139,18 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : TEXT["unexpected_behaviour"], TEXT["internal_error"] or TEXT["successfully-updated-info"]
     @staticmethod
     def action_update_personal_info(db_session, parameters, username=None):
-        user = db_session.query(User).filter(User.username == parameters["username"]).first()
-        if user:
+        me = db_session.query(User).filter(User.username == username).first()
+        if me:
             if "new-nickname" in parameters:
-                user.nickname = parameters["new-nickname"]
+                me.nickname = parameters["new-nickname"]
             if "new-passwd" in parameters:
-                user.password = parameters["new-passwd"]
+                me.password = parameters["new-passwd"]
             if "new-signature" in parameters:
-                user.signature = parameters["new-signature"]
+                me.signature = parameters["new-signature"]
             if "new-avatar" in parameters:
-                # todo save avatar data
-                user.avatar = parameters["new-avatar"]
+                with open(os.path.join(os.getcwd(), "attachments/avatar/{}".format(username)), 'wb') as f:
+                    f.write(parameters["new-avatar"])
+                me.avatar = True
             db_session.commit()
             return TEXT["successfully-updated-info"]
         else:
@@ -166,7 +167,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
         if parameters["type"] not in CONFIG.AVAILABLE_MESSAGE_TYPE:
             return TEXT['unexpected_behaviour']
         if (parameters["type"] == "text" and "message" not in parameters) or \
-                (parameters["type"] != "text" and "data" not in parameters):
+                (parameters["type"] != "text" and ("data" not in parameters or "filename" not in parameters)):
             return TEXT['incomplete_parameters']
         if not db_session.query(User).filter(User.username == parameters["receiver"]).first():
             return TEXT['unexpected_behaviour']
@@ -176,14 +177,15 @@ class RequestHandler(socketserver.BaseRequestHandler):
             'receiver': parameters['receiver'],
             'sender': username
         }
+
         # Generate message_id
         message["message_id"] = generate_md5(message["type"] + str(message["time"]) + message["sender"] +
                                              message["receiver"])
         if db_session.query(Message).filter(Message.message_id == message["message_id"]).first():
             return text("duplicated_message", message["message_id"])
+
         if parameters["type"] == "text":
             message["message"] = parameters["message"]
-
             # Save message to database
             db_session.add(Message(message_id=message["message_id"], type=message["type"],
                                    time=message["time"], sender=message["sender"],
@@ -201,6 +203,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
             db_session.add(Message(message_id=message["message_id"], type=message["type"],
                                    time=message["time"], sender=message["sender"],
                                    receiver=message["receiver"]))
+            db_session.add(Attachment(message_id=message["message_id"]), filename=parameters["filename"])
             db_session.commit()
 
             return text("message_sent", message["message_id"])
@@ -214,9 +217,13 @@ class RequestHandler(socketserver.BaseRequestHandler):
             return TEXT['incomplete_parameters']
         message = db_session.query(Message).filter(Message.message_id == parameters["message_id"]).first()
         if message.receiver == username:
+            # Delete message from database
             db_session.delete(message)
             db_session.commit()
-            # todo delete attachment from server
+
+            if message.type != "text":
+                # delete attachment from server
+                os.remove(os.path.join(os.getcwd(), "attachments/{}".format(message.message_id)))
 
     # Function name: action_heartbeat
     # Description  : Handle heartbeat from client
@@ -281,8 +288,10 @@ class RequestHandler(socketserver.BaseRequestHandler):
                         if each_message.type == "text":
                             msg_to_send["message"] = each_message.message
                         else:
-                            pass
-                            # todo:file handle
+                            with open(os.path.join(os.getcwd(),
+                                                   "attachments/{}".format(each_message.message_id),"rb")
+                                      ) as f:
+                                msg_to_send["data"] = f.read()
                         try:
                             send_msg(sock, msgpack.dumps(msg_to_send))
                         except BrokenPipeError:

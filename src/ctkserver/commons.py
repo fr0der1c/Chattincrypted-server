@@ -38,6 +38,8 @@ def generate_md5(data):
 
 # Function name: send_msg
 # Description: Prefix each message with a 4-byte length (network byte order) and send it.
+#              See https://stackoverflow.com/questions/17667903/python-socket-receive-large-amount-of-data
+#              for more information.
 # Return value: no return value
 def send_msg(sock, msg):
     msg = struct.pack('>I', len(msg)) + msg
@@ -66,5 +68,8 @@ def recv_msg(sock):
     if not raw_msg_len:
         return None
     msg_len = struct.unpack('>I', raw_msg_len)[0]
-    # Read the message data
-    return recv_all(sock, msg_len)
+    # Read the message data if msg_len < 21MB
+    if msg_len < 1024 * 1024 * 21:
+        return recv_all(sock, msg_len)
+    else:
+        return None

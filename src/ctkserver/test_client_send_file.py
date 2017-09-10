@@ -1,9 +1,8 @@
-# Echo client program
 from socket import *
 from ctkserver.config import load_config
+from ctkserver.commons import recv_msg, send_msg
 import msgpack
 import threading
-import datetime
 import time
 
 CONFIG = load_config()
@@ -21,10 +20,12 @@ class ReceivingThread(threading.Thread):
     def run(self):
         print("Receiving thread start")
         while True:
-            data = msgpack.loads(tcpCliSock.recv(BUFSIZE), encoding="utf-8")
-            print("Received data:%s" % data)
-            if data == {"status": "success", "description": "Bye-bye"}:
-                break
+            recv = recv_msg(tcpCliSock)
+            if recv:
+                data = msgpack.loads(recv, encoding="utf-8")
+                print("Received data:%s" % data)
+                if data == {"status": "success", "description": "Bye-bye"}:
+                    break
 
 
 class SendingThread(threading.Thread):
@@ -43,7 +44,7 @@ class SendingThread(threading.Thread):
                 }
             }
         data_2 = msgpack.dumps(data_json, use_bin_type=True)
-        tcpCliSock.sendall(data_2)
+        send_msg(tcpCliSock, data_2)
 
 
 if __name__ == '__main__':
@@ -55,7 +56,7 @@ if __name__ == '__main__':
         }
     }
     data = msgpack.dumps(data_json)
-    tcpCliSock.sendall(data)
+    send_msg(tcpCliSock, data)
 
     sender = SendingThread()
     refresher = ReceivingThread()
