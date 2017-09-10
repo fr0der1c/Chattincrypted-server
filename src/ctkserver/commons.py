@@ -70,4 +70,4 @@ def recv_msg(sock):
     if msg_len < 1024 * 1024 * 21:
         return recv_all(sock, msg_len)
     else:
-        return recv_all(sock, msg_len)
+        return None

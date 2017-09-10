@@ -14,6 +14,8 @@ TEXT = {
     "heartbeat": {"status": "success", "description": "Heartbeat"},
     "successfully-updated-info": {"status": "success", "description": "Successfully updated info"},
     "message_sent": {"status": "success", "description": "Message %s sent"},
+    "successfully_added_contact":{"status": "success", "description": "Successfully added contact"},
+    "successfully_deleted_contact":{"status": "success", "description": "Successfully deleted contact"},
 }
 
 

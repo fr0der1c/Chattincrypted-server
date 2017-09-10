@@ -60,25 +60,25 @@ class Attachment(ORMBaseModel):
     filename = Column(String(255), nullable=False)
 
     def __repr__(self):
-        return "<Attachment `{}`>".format(self.message_id)
+        return "<Attachment `{}` filename=`{}`>".format(self.message_id, self.filename)
 
 
 class Blacklist(ORMBaseModel):
     __tablename__ = 'ctk_blacklists'
     username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
-    blocked_users = Column(Text, nullable=False)
+    blocked_user = Column(String(40), ForeignKey('ctk_users.username'), nullable=False)
 
     def __repr__(self):
-        return "<Blacklist of `{}`:{}>".format(self.username, self.blocked_users)
+        return "<Blacklist of `{}`:{}>".format(self.username, self.blocked_user)
 
 
 class Contact(ORMBaseModel):
     __tablename__ = 'ctk_user_contacts'
     username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
-    contacts = Column(Text, nullable=False)
+    contact = Column(String(40), ForeignKey('ctk_users.username'), nullable=False)
 
     def __repr__(self):
-        return "<Contact of `{}`:{}>".format(self.username, self.contacts)
+        return "<Contact of `{}`:{}>".format(self.username, self.contact)
 
 
 # Class      : RemoveOfflineUserThread
@@ -157,6 +157,76 @@ class RequestHandler(socketserver.BaseRequestHandler):
         else:
             return TEXT["unexpected_behaviour"]
 
+    # Function name: action_get_user_info
+    # Description  : Get info of a user
+    # Return value : TEXT["unexpected_behaviour"] or msg_to_return
+    @staticmethod
+    def action_get_user_info(db_session, parameters, username=None):
+        if "username" not in parameters:
+            return TEXT['incomplete_parameters']
+        user = db_session.query(User).filter(User.username == parameters["username"]).first()
+        if user:
+            msg_to_return = {
+                "username": user.username,
+                "nickname": user.nickname,
+                "fingerprint": user.fingerprint,
+                "avatar": '',
+                "signature": user.signature,
+                "mail": user.mail,
+            }
+            if user.avatar:
+                msg_to_return["avatar"] = True
+                with open(os.path.join(os.getcwd(),
+                                       "attachments/avatar/{}".format(user.username)), "rb"
+                          ) as f:
+                    msg_to_return["avatar_data"] = f.read()
+            else:
+                msg_to_return["avatar"] = False
+            return msg_to_return
+        else:
+            return TEXT["unexpected_behaviour"]
+
+    # Function name: action_get_user_info
+    # Description  : Add a user to contact
+    # Return value : TEXT["unexpected_behaviour"], TEXT["successfully_added_contact"] or TEXT['incomplete_parameters']
+    @staticmethod
+    def action_add_contact(db_session, parameters, username=None):
+        if "username" not in parameters:
+            return TEXT['incomplete_parameters']
+        if db_session.query(Contact).filter(Contact.username == username,
+                                            Contact.contact == parameters["username"]).all():
+            return TEXT["unexpected_behaviour"]
+        db_session.add(Contact(username=username, contact=parameters["username"]))
+        db_session.commit()
+        return TEXT["successfully_added_contact"]
+
+    # Function name: action_del_contact
+    # Description  : Del a user from contact
+    # Return value : TEXT['incomplete_parameters'], TEXT["unexpected_behaviour"] or TEXT["successfully_deleted_contact"]
+    @staticmethod
+    def action_del_contact(db_session, parameters, username=None):
+        if "username" not in parameters:
+            return TEXT['incomplete_parameters']
+        contact = db_session.query(Contact).filter(Contact.username == username,
+                                                   Contact.contact == parameters["username"]).first()
+        if not contact:
+            return TEXT["unexpected_behaviour"]
+        db_session.delete(contact)
+        db_session.commit()
+        return TEXT["successfully_deleted_contact"]
+
+    # Function name: action_get_my_contacts
+    # Description  : Get a user's contacts
+    # Return value : TEXT["unexpected_behaviour"] or TEXT["successfully_added_contact"]
+    @staticmethod
+    def action_get_my_contacts(db_session, parameters, username=None):
+        my_contacts = db_session.query(Contact).filter(Contact.username == username).all()
+        msg_to_return = {
+            "action": "get-my-contacts",
+            "contacts": [u.username for u in my_contacts],
+        }
+        return msg_to_return
+
     # Function name: action_send_message
     # Description  : Handle messages sent from clients
     # Return value : TEXT['incomplete_parameters'], TEXT["unexpected_behaviour"] or
@@ -210,7 +280,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
             return text("message_sent", message["message_id"])
 
     # Function name: action_message_received
-    # Description  : When receiving message-received request, delete message from database
+    # Description  : Handle message-received request, delete message from database
     # Return value : no return value
     @staticmethod
     def action_message_received(db_session, parameters, username=None):
@@ -248,6 +318,10 @@ class RequestHandler(socketserver.BaseRequestHandler):
             "user-register": RequestHandler.action_user_register,
             "user-login": RequestHandler.action_user_login,
             "update-personal-info": RequestHandler.action_update_personal_info,
+            "get-user-info": RequestHandler.action_get_user_info,
+            "add-contact": RequestHandler.action_add_contact,
+            "del-contact": RequestHandler.action_del_contact,
+            "get-my-contacts": RequestHandler.action_get_my_contacts,
             "send-message": RequestHandler.action_send_message,
             "message-received": RequestHandler.action_message_received,
             "heartbeat": RequestHandler.action_heartbeat,
@@ -275,7 +349,6 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 for each_message in messages:
                     if not each_message.last_send_time \
                             or datetime.datetime.now() - each_message.last_send_time > datetime.timedelta(seconds=10):
-                        print("Send message %s" % each_message)
                         # Send message
                         msg_to_send = {
                             "action": "receive-message",
@@ -297,8 +370,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
                                       ) as f:
                                 msg_to_send["data"] = f.read()
                         try:
-                            print("msg_to_send:%s" % msgpack.dumps(msg_to_send))
                             send_msg(sock, msgpack.dumps(msg_to_send, use_bin_type=True))
+                            print("[INFO]Send message %s" % each_message)
                         except BrokenPipeError:
                             # Client closed connection
                             flag_to_quit = True
@@ -349,7 +422,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
                                                              accept_data["parameters"])
 
                     if send_data:
-                        send_msg(sock, msgpack.dumps(send_data))
+                        send_msg(sock, msgpack.dumps(send_data, use_bin_type=True))
 
                     # if successfully log in, save username to variable username
                     if send_data["description"] == "Login successfully":
@@ -366,7 +439,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 break
             except ConnectionResetError:
                 # Client trying to connect, but server closed the connection
-                print("[WARNING]ConnectionResetError.")
+                print("[INFO]ConnectionResetError.")
                 break
             except BrokenPipeError:
                 # Server trying to write to socket, but client closed the connection

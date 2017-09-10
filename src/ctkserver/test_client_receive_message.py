@@ -22,7 +22,10 @@ class ReceivingThread(threading.Thread):
         while True:
             recv = recv_msg(tcpCliSock)
             if recv:
-                print("Received data:%s" % recv)
+                if len(recv) > 500:
+                    print("[INFO]Accepted data %s...%s" % (recv[0:50], recv[-50:-1]))
+                else:
+                    print("[INFO]Accepted data %s." % recv)
                 data = msgpack.loads(recv, encoding="utf-8")
                 if data == {"status": "success", "description": "Bye-bye"}:
                     break
