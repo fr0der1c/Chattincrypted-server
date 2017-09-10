@@ -159,11 +159,11 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
     # Function name: action_get_user_info
     # Description  : Get info of a user
-    # Return value : TEXT["unexpected_behaviour"] or msg_to_return
+    # Return value : "unexpected_behaviour" or msg_to_return
     @staticmethod
     def action_get_user_info(db_session, parameters, username=None):
         if "username" not in parameters:
-            return TEXT['incomplete_parameters']
+            return text("incomplete_parameters")
         user = db_session.query(User).filter(User.username == parameters["username"]).first()
         if user:
             msg_to_return = {
@@ -184,36 +184,65 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 msg_to_return["avatar"] = False
             return msg_to_return
         else:
-            return TEXT["unexpected_behaviour"]
+            return text("unexpected_behaviour")
 
     # Function name: action_get_user_info
     # Description  : Add a user to contact
-    # Return value : TEXT["unexpected_behaviour"], TEXT["successfully_added_contact"] or TEXT['incomplete_parameters']
+    # Return value : "unexpected_behaviour", "successfully_added_contact" or 'incomplete_parameters'
     @staticmethod
     def action_add_contact(db_session, parameters, username=None):
         if "username" not in parameters:
-            return TEXT['incomplete_parameters']
+            return text('incomplete_parameters')
         if db_session.query(Contact).filter(Contact.username == username,
                                             Contact.contact == parameters["username"]).all():
-            return TEXT["unexpected_behaviour"]
+            return text("unexpected_behaviour")
         db_session.add(Contact(username=username, contact=parameters["username"]))
         db_session.commit()
-        return TEXT["successfully_added_contact"]
+        return text("successfully_added_contact", parameters["username"])
 
     # Function name: action_del_contact
     # Description  : Del a user from contact
-    # Return value : TEXT['incomplete_parameters'], TEXT["unexpected_behaviour"] or TEXT["successfully_deleted_contact"]
+    # Return value : 'incomplete_parameters', "unexpected_behaviour" or "successfully_deleted_contact"
     @staticmethod
     def action_del_contact(db_session, parameters, username=None):
         if "username" not in parameters:
-            return TEXT['incomplete_parameters']
+            return text("incomplete_parameters")
         contact = db_session.query(Contact).filter(Contact.username == username,
                                                    Contact.contact == parameters["username"]).first()
         if not contact:
-            return TEXT["unexpected_behaviour"]
+            return text("unexpected_behaviour")
         db_session.delete(contact)
         db_session.commit()
-        return TEXT["successfully_deleted_contact"]
+        return text("successfully_deleted_contact", parameters["username"])
+
+    # Function name: action_add_blacklist
+    # Description  : Add a user to blacklist
+    # Return value : "unexpected_behaviour", "successfully_added_blacklist" or 'incomplete_parameters'
+    @staticmethod
+    def action_add_blacklist(db_session, parameters, username=None):
+        if "username" not in parameters:
+            return text('incomplete_parameters')
+        if db_session.query(Blacklist).filter(Blacklist.username == username,
+                                              Blacklist.blocked_user == parameters["username"]).all():
+            return text("unexpected_behaviour")
+        db_session.add(Blacklist(username=username, blocked_user=parameters["username"]))
+        db_session.commit()
+        return text("successfully_added_blacklist", parameters["username"])
+
+    # Function name: action_del_blacklist
+    # Description  : Del a user from blacklist
+    # Return value : "successfully_removed_blacklist", "unexpected_behaviour" or 'incomplete_parameters'
+    @staticmethod
+    def action_del_blacklist(db_session, parameters, username=None):
+        if "username" not in parameters:
+            return TEXT['incomplete_parameters']
+        blacklisted = db_session.query(Blacklist).filter(Blacklist.username == username,
+                                                         Blacklist.blocked_user == parameters["username"]).first()
+        if not blacklisted:
+            return TEXT["unexpected_behaviour"]
+        db_session.delete(blacklisted)
+        db_session.commit()
+        return text("successfully_removed_blacklist", parameters["username"])
 
     # Function name: action_get_my_contacts
     # Description  : Get a user's contacts
@@ -240,6 +269,9 @@ class RequestHandler(socketserver.BaseRequestHandler):
         if (parameters["type"] == "text" and "message" not in parameters) or \
                 (parameters["type"] != "text" and ("data" not in parameters or "filename" not in parameters)):
             return TEXT['incomplete_parameters']
+        if db_session.query(Blacklist).filter(Blacklist.username == parameters["receiver"],
+                                              Blacklist.blocked_user == username).first():
+            return text("blocked_by_user")
         if not db_session.query(User).filter(User.username == parameters["receiver"]).first():
             return TEXT['unexpected_behaviour']
         message = {
@@ -322,6 +354,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
             "add-contact": RequestHandler.action_add_contact,
             "del-contact": RequestHandler.action_del_contact,
             "get-my-contacts": RequestHandler.action_get_my_contacts,
+            "add-blacklist": RequestHandler.action_add_blacklist,
+            "del-blacklist": RequestHandler.action_del_blacklist,
             "send-message": RequestHandler.action_send_message,
             "message-received": RequestHandler.action_message_received,
             "heartbeat": RequestHandler.action_heartbeat,
