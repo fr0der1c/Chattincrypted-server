@@ -5,6 +5,7 @@ import msgpack
 import os
 import time
 import threading
+import ssl
 import datetime
 from sqlalchemy import Column, String, Boolean, Text, TIMESTAMP, ForeignKey, create_engine
 from sqlalchemy.orm import sessionmaker
@@ -25,6 +26,8 @@ db_engine = create_engine('mysql+pymysql://{}:{}@{}:{}/{}'
                           encoding='utf-8'
                           )
 DBSession = sessionmaker(bind=db_engine)
+ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+ssl_context.load_cert_chain(certfile="config/cert/cert.pem", keyfile="config/cert/key.pem")
 
 
 class User(ORMBaseModel):
@@ -489,16 +492,17 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : No return value
     def handle(self):
         db_session = DBSession()
-        sock = self.request
+        socket = self.request
         address = self.client_address
+        ssl_sock = ssl_context.wrap_socket(socket, server_side=True)
         print("[INFO]{} connected.".format(address))
         current_user = []
 
         # Open handling and forwardly sending thread for each client
         handling_thread = threading.Thread(target=RequestHandler.handle_user_request_thread,
-                                           args=(sock, db_session, current_user))
+                                           args=(ssl_sock, db_session, current_user))
         sending_thread = threading.Thread(target=RequestHandler.forwardly_sending_message_thread,
-                                          args=(sock, db_session, current_user))
+                                          args=(ssl_sock, db_session, current_user))
         handling_thread.start()
         sending_thread.start()
         handling_thread.join()
@@ -506,7 +510,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
         # After joining two threads(client log out)
         print("[INFO]Socket close.")
-        sock.close()
+        ssl_sock.close()
         db_session.close()
 
 

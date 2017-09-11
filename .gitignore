@@ -1,6 +1,8 @@
 # Other
 .idea/
+fabfile.py
 *.zip
+*.tar.gz
 /src/ctkserver/config/development.py
 /src/ctkserver/config/production.py
 /src/ctkserver/config/cert*
