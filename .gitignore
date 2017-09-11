@@ -1,7 +1,10 @@
 # Other
 .idea/
+*.zip
 /src/ctkserver/config/development.py
 /src/ctkserver/config/production.py
+/src/ctkserver/config/cert*
+/src/ctkserver/test_image.png
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Python template
