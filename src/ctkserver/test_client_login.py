@@ -5,7 +5,7 @@ import msgpack
 
 CONFIG = load_config()
 
-HOST = CONFIG.HOST
+HOST = '45.32.250.230'
 PORT = CONFIG.PORT
 BUFSIZE = CONFIG.BUFSIZE
 ADDR = (HOST, PORT)

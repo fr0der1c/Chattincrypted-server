@@ -14,6 +14,7 @@ from ctkserver.config import load_config
 from ctkserver.predefined_text import TEXT, text
 from ctkserver.user import log_in, heartbeat
 
+print("Hello!")
 CONFIG = load_config()
 LOGGED_IN_USERS = {}
 ORMBaseModel = declarative_base()
@@ -42,7 +43,7 @@ class User(ORMBaseModel):
 
 class Message(ORMBaseModel):
     __tablename__ = 'ctk_messages'
-    message_id = Column(String(255), primary_key=True)
+    message_id = Column(String(130), primary_key=True)
     type = Column(String(10), nullable=False)
     time = Column(String(255), nullable=False)
     sender = Column(String(40), ForeignKey('ctk_users.username'), nullable=False)
@@ -56,7 +57,7 @@ class Message(ORMBaseModel):
 
 class Attachment(ORMBaseModel):
     __tablename__ = 'ctk_attachments'
-    message_id = Column(String(255), ForeignKey('ctk_messages.message_id'), primary_key=True)
+    message_id = Column(String(130), ForeignKey('ctk_messages.message_id'), primary_key=True)
     filename = Column(String(255), nullable=False)
 
     def __repr__(self):
