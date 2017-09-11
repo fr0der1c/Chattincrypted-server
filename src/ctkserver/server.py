@@ -26,8 +26,6 @@ db_engine = create_engine('mysql+pymysql://{}:{}@{}:{}/{}'
                           encoding='utf-8'
                           )
 DBSession = sessionmaker(bind=db_engine)
-ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-ssl_context.load_cert_chain(certfile="config/cert/cert.pem", keyfile="config/cert/key.pem")
 
 
 class User(ORMBaseModel):
@@ -113,9 +111,12 @@ class RequestHandler(socketserver.BaseRequestHandler):
         # If all parameters are met, add new user. Else tell client incomplete parameters.
         if "mail-address" in parameters and "username" in parameters and "nickname" in parameters \
                 and "password" in parameters and "fingerprint" in parameters:
-            db_session.add(User(mail=parameters['mail-address'], username=parameters['username'],
-                                nickname=parameters['nickname'], password=parameters['password'],
-                                fingerprint=parameters['fingerprint']))
+            db_session.add(User(mail=parameters['mail-address'],
+                                username=parameters['username'],
+                                nickname=parameters['nickname'],
+                                password=parameters['password'],
+                                fingerprint=parameters['fingerprint'],
+                                avatar=False))
             db_session.commit()
             return TEXT["successfully_registered"]
         else:
@@ -200,7 +201,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
         if db_session.query(Contact).filter(Contact.username == username,
                                             Contact.contact == parameters["username"]).all():
             return text("unexpected_behaviour")
-        db_session.add(Contact(username=username, contact=parameters["username"]))
+        db_session.add(Contact(username=username,
+                               contact=parameters["username"]))
         db_session.commit()
         return text("successfully_added_contact", parameters["username"])
 
@@ -229,7 +231,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
         if db_session.query(Blacklist).filter(Blacklist.username == username,
                                               Blacklist.blocked_user == parameters["username"]).all():
             return text("unexpected_behaviour")
-        db_session.add(Blacklist(username=username, blocked_user=parameters["username"]))
+        db_session.add(Blacklist(username=username,
+                                 blocked_user=parameters["username"]))
         db_session.commit()
         return text("successfully_added_blacklist", parameters["username"])
 
@@ -254,9 +257,12 @@ class RequestHandler(socketserver.BaseRequestHandler):
     @staticmethod
     def action_get_my_contacts(db_session, parameters, username=None):
         my_contacts = db_session.query(Contact).filter(Contact.username == username).all()
+        contacts_str = ""
+        for u in my_contacts:
+            contacts_str = contacts_str + u.username + ','
         msg_to_return = {
             "action": "get-my-contacts",
-            "contacts": [u.username for u in my_contacts],
+            "contacts": contacts_str,
         }
         return msg_to_return
 
@@ -294,8 +300,10 @@ class RequestHandler(socketserver.BaseRequestHandler):
         if parameters["type"] == "text":
             message["message"] = parameters["message"]
             # Save message to database
-            db_session.add(Message(message_id=message["message_id"], type=message["type"],
-                                   time=message["time"], sender=message["sender"],
+            db_session.add(Message(message_id=message["message_id"],
+                                   type=message["type"],
+                                   time=message["time"],
+                                   sender=message["sender"],
                                    receiver=message["receiver"],
                                    message=message["message"]))
             db_session.commit()
@@ -307,10 +315,13 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 f.write(parameters["data"])
 
             # Save message to database
-            db_session.add(Message(message_id=message["message_id"], type=message["type"],
-                                   time=message["time"], sender=message["sender"],
+            db_session.add(Message(message_id=message["message_id"],
+                                   type=message["type"],
+                                   time=message["time"],
+                                   sender=message["sender"],
                                    receiver=message["receiver"]))
-            db_session.add(Attachment(message_id=message["message_id"], filename=parameters["filename"]))
+            db_session.add(Attachment(message_id=message["message_id"],
+                                      filename=parameters["filename"]))
             db_session.commit()
 
             return text("message_sent", message["message_id"])
@@ -390,12 +401,10 @@ class RequestHandler(socketserver.BaseRequestHandler):
                         # Send message
                         msg_to_send = {
                             "action": "receive-message",
-                            "parameters": {
-                                "message_id": each_message.message_id,
-                                "type": each_message.type,
-                                "sender": each_message.sender,
-                                "time": each_message.time,
-                            }
+                            "message_id": each_message.message_id,
+                            "type": each_message.type,
+                            "sender": each_message.sender,
+                            "time": each_message.time,
                         }
                         if each_message.type == "text":
                             msg_to_send["message"] = each_message.message
@@ -443,7 +452,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
                     if current_user:
                         send_msg(sock, msgpack.dumps("This is %s" % current_user[0]))
 
-                    if "parameters" not in accept_data or "action" not in accept_data:
+                    if "parameters" not in accept_data:
                         send_data = TEXT['incomplete_parameters']
 
                     # If Bye-bye
@@ -454,17 +463,17 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
                     if current_user:
                         send_data = RequestHandler.do_action(db_session, accept_data["action"],
-                                                             accept_data["parameters"], username=current_user[0])
+                                                             accept_data, username=current_user[0])
                     else:
                         send_data = RequestHandler.do_action(db_session, accept_data["action"],
-                                                             accept_data["parameters"])
+                                                             accept_data)
 
                     if send_data:
                         send_msg(sock, msgpack.dumps(send_data, use_bin_type=True))
 
                     # if successfully log in, save username to variable username
                     if send_data["description"] == "Login successfully":
-                        current_user.append(accept_data["parameters"]["username"])
+                        current_user.append(accept_data["username"])
                         print("[INFO]User {} logged in.".format(current_user[0]))
 
             except msgpack.exceptions.UnpackValueError:
@@ -494,7 +503,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
         db_session = DBSession()
         socket = self.request
         address = self.client_address
-        ssl_sock = ssl_context.wrap_socket(socket, server_side=True)
+        ssl_sock = socket
         print("[INFO]{} connected.".format(address))
         current_user = []
 
