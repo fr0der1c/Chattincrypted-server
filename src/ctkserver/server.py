@@ -15,7 +15,7 @@ from ctkserver.config import load_config
 from ctkserver.predefined_text import TEXT, text
 from ctkserver.user import log_in, heartbeat
 
-print("Hello!")
+print("Hello")
 CONFIG = load_config()
 LOGGED_IN_USERS = {}
 ORMBaseModel = declarative_base()
@@ -34,7 +34,7 @@ class User(ORMBaseModel):
     username = Column(String(40), primary_key=True)
     nickname = Column(String(40))
     password = Column(String(100), nullable=False)
-    fingerprint = Column(String(100), nullable=False)
+    public_key = Column(String(5000), nullable=False)
     signature = Column(String(100))
     avatar = Column(Boolean)
 
@@ -110,12 +110,12 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
         # If all parameters are met, add new user. Else tell client incomplete parameters.
         if "mail-address" in parameters and "username" in parameters and "nickname" in parameters \
-                and "password" in parameters and "fingerprint" in parameters:
+                and "password" in parameters and "public_key" in parameters:
             db_session.add(User(mail=parameters['mail-address'],
                                 username=parameters['username'],
                                 nickname=parameters['nickname'],
                                 password=parameters['password'],
-                                fingerprint=parameters['fingerprint'],
+                                public_key=parameters['public_key'],
                                 avatar=False))
             db_session.commit()
             return TEXT["successfully_registered"]
@@ -174,7 +174,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
             msg_to_return = {
                 "username": user.username,
                 "nickname": user.nickname,
-                "fingerprint": user.fingerprint,
+                "public_key": user.public_key,
                 "avatar": '',
                 "signature": user.signature,
                 "mail": user.mail,

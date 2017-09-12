@@ -54,6 +54,7 @@ def recv_all(sock, n):
         if not packet:
             return None
         data += packet
+    print(data)
     return data
 
 

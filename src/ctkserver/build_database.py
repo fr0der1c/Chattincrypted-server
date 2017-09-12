@@ -21,7 +21,7 @@ class User(ORMBaseModel):
     username = Column(String(40), primary_key=True)
     nickname = Column(String(40))
     password = Column(String(100), nullable=False)
-    fingerprint = Column(String(100), nullable=False)
+    public_key = Column(String(5000), nullable=False)
     signature = Column(String(100))
     avatar = Column(Boolean)
 
@@ -78,7 +78,7 @@ userinfo = {
     "username": "lavender",
     "nickname": "lavender",
     "password": "pass_lavender",
-    "fingerprint": "FINGERPRINT1",
+    "public_key": "FINGERPRINT1",
     "avatar": "1"
 }
 session.add(User(**userinfo))
