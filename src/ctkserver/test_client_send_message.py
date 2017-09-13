@@ -24,7 +24,6 @@ class ReceivingThread(threading.Thread):
         while True:
             recv = recv_msg(tcpCliSock)
             if recv:
-                print(recv)
                 data = msgpack.loads(recv, encoding="utf-8")
                 print("Received data:%s" % data)
                 if data == {"status": "success", "description": "Bye-bye"}:
@@ -38,9 +37,8 @@ class SendingThread(threading.Thread):
         data_json = {
             "action": "send-message",
             "type": "text",
-            "message": "message",
-            "receiver": "frederic",
-            "time1": "time",
+            "message": "message123",
+            "receiver": "wolfbolin",
             "time": int(round(time.time() * 1000)),
         }
         data_2 = msgpack.dumps(data_json)
@@ -48,7 +46,7 @@ class SendingThread(threading.Thread):
 
 
 if __name__ == '__main__':
-    data = msgpack.dumps(CONFIG.data_login_wolfbolin)
+    data = msgpack.dumps(CONFIG.data_login_frederic)
     send_msg(tcpCliSock, data)
 
     sender = SendingThread()

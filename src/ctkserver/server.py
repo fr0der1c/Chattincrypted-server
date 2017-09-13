@@ -209,10 +209,9 @@ class RequestHandler(socketserver.BaseRequestHandler):
         my_contacts = db_session.query(Contact).filter(Contact.username == username).first()
         if my_contacts:
             # change my entry
-            contacts = json.loads(my_contacts.contacts)
-            if parameters["username"] not in contacts:
-                contacts.append(parameters["username"])
-            my_contacts.contacts = json.dumps(contacts)
+            contacts_list = json.loads(my_contacts.contacts)
+            contacts_list.append(parameters["username"])
+            my_contacts.contacts = json.dumps(contacts_list)
         else:
             # add entry
             db_session.add(Contact(username=username,
@@ -242,7 +241,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
             return text("unexpected_behaviour")
 
         # Update contacts
-        contact_in_db.contacts = json.dumps(contacts.remove(parameters["username"]))
+        contacts.remove(parameters["username"])
+        contact_in_db.contacts = json.dumps(contacts)
         db_session.commit()
         return text("successfully_deleted_contact", parameters["username"])
 
@@ -285,12 +285,13 @@ class RequestHandler(socketserver.BaseRequestHandler):
             return text("unexpected_behaviour")
 
         # Not in my contacts
-        blocked_users = json.loads(blacklists.blocked_users)
-        if parameters["username"] not in blocked_users:
+        blocked_users_list = json.loads(blacklists.blocked_users)
+        if parameters["username"] not in blocked_users_list:
             return text("unexpected_behaviour")
 
         # Update info
-        blacklists.blocked_users = json.dumps(blocked_users.remove(parameters["username"]))
+        blocked_users_list.remove(parameters["username"])
+        blacklists.blocked_users = json.dumps(blocked_users_list)
         db_session.commit()
         return text("successfully_removed_blacklist", parameters["username"])
 
@@ -308,6 +309,12 @@ class RequestHandler(socketserver.BaseRequestHandler):
             }
         else:
             contacts_list = json.loads(my_contacts_in_db.contacts)
+            if not contacts_list:
+                msg_to_return = {
+                    "action": "get-my-contacts",
+                    "contacts": "",
+                }
+                return msg_to_return
             for u in contacts_list:
                 contacts_str = contacts_str + u + ','
             msg_to_return = {
@@ -336,8 +343,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
             return TEXT['incomplete_parameters']
 
         # Check if was blocked
-        receiver_blocking_list = db_session.query(Blacklist)\
-                                           .filter(Blacklist.username == parameters["receiver"]).first()
+        receiver_blocking_list = db_session.query(Blacklist) \
+            .filter(Blacklist.username == parameters["receiver"]).first()
         if receiver_blocking_list and username in json.loads(receiver_blocking_list):
             return text("blocked_by_user")
 
@@ -360,7 +367,6 @@ class RequestHandler(socketserver.BaseRequestHandler):
             return text("duplicated_message", message["message_id"])
 
         if parameters["type"] == "text":
-            print("text")
             message["message"] = parameters["message"]
             # Save message to database
             db_session.add(Message(message_id=message["message_id"],
@@ -453,7 +459,9 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : no return value
     @staticmethod
     def forwardly_sending_message_thread(sock, db_session, current_user):
+        time.sleep(5)
         flag_to_quit = False
+        print('current user:%s'%current_user)
         while True:
             # If logged in and have message to send
             if current_user:
@@ -529,6 +537,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
                     if send_data:
                         send_msg(sock, msgpack.dumps(send_data, use_bin_type=True))
+                        print("send: %s" % msgpack.dumps(send_data, use_bin_type=True))
 
                     # if successfully log in, save username to variable username
                     if send_data and "description" in send_data.keys() \
@@ -545,8 +554,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 print("[EXCEPTION]Not a msgpack file(msgpack.exceptions.ExtraData)")
                 break
             except ConnectionResetError:
-                # Client trying to connect, but server closed the connection
-                print("[INFO]ConnectionResetError.")
+                print("[INFO]ConnectionResetError in handle_user_request_thread")
                 break
             except BrokenPipeError:
                 # Server trying to write to socket, but client closed the connection
