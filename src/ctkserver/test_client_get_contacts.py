@@ -35,8 +35,6 @@ class SendingThread(threading.Thread):
         print("Sending thread start")
         time.sleep(2)
 
-
-
         data_json = {
             "action": "get-my-contacts",
         }

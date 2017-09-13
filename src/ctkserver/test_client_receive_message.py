@@ -7,8 +7,8 @@ import threading
 
 CONFIG = load_config()
 
-HOST = CONFIG.HOST
-PORT = CONFIG.PORT
+HOST = CONFIG.REMOTE_HOST
+PORT = CONFIG.REMOTE_PORT
 BUFSIZE = CONFIG.BUFSIZE
 ADDR = (HOST, PORT)
 
@@ -32,7 +32,7 @@ class ReceivingThread(threading.Thread):
 
 
 if __name__ == '__main__':
-    data = msgpack.dumps(CONFIG.data_login_lavender)
+    data = msgpack.dumps(CONFIG.data_login_remote_wolfbolin)
     send_msg(tcpCliSock, data)
 
     refresher = ReceivingThread()

@@ -9,8 +9,8 @@ import time
 
 CONFIG = load_config()
 
-HOST = CONFIG.REMOTE_HOST
-PORT = CONFIG.REMOTE_PORT
+HOST = CONFIG.WAN_HOST
+PORT = CONFIG.PORT
 BUFSIZE = CONFIG.BUFSIZE
 ADDR = (HOST, PORT)
 
@@ -24,6 +24,7 @@ class ReceivingThread(threading.Thread):
         while True:
             recv = recv_msg(tcpCliSock)
             if recv:
+
                 data = msgpack.loads(recv, encoding="utf-8")
                 print("Received data:%s" % data)
                 if data == {"status": "success", "description": "Bye-bye"}:
@@ -36,14 +37,14 @@ class SendingThread(threading.Thread):
         time.sleep(2)
         data_json = {
             "action": "get-user-info",
-            "username": "test",
+            "username": "frederic",
         }
         data_2 = msgpack.dumps(data_json)
         send_msg(tcpCliSock, data_2)
 
 
 if __name__ == '__main__':
-    data = msgpack.dumps(CONFIG.data_login_remote_wolfbolin)
+    data = msgpack.dumps(CONFIG.data_login_frederic)
     send_msg(tcpCliSock, data)
 
     sender = SendingThread()

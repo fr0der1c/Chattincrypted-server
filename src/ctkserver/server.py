@@ -25,7 +25,7 @@ db_engine = create_engine('mysql+pymysql://{}:{}@{}:{}/{}'
                                   CONFIG.DB['host'], CONFIG.DB['port'],
                                   CONFIG.DB['database']),
                           encoding='utf-8',
-                          pool_size=100
+                          pool_size=50
                           )
 DBSession = sessionmaker(bind=db_engine)
 
@@ -178,7 +178,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 "username": user.username,
                 "nickname": user.nickname,
                 "public_key": user.public_key,
-                "signature": user.signature,
+                "signature": user.signature if user.signature else '',
                 "mail": user.mail,
             }
             if user.avatar:
@@ -200,15 +200,21 @@ class RequestHandler(socketserver.BaseRequestHandler):
     def action_add_contact(db_session, parameters, username=None):
         if "username" not in parameters:
             return text('incomplete_parameters')
+        user_to_add = db_session.query(User).filter(User.username == parameters["username"]).first()
+
+        # User not exist
+        if not user_to_add:
+            return text("unexpected_behaviour")
+
         my_contacts = db_session.query(Contact).filter(Contact.username == username).first()
         if my_contacts:
-            # change
+            # change my entry
             contacts = json.loads(my_contacts.contacts)
             if parameters["username"] not in contacts:
                 contacts.append(parameters["username"])
             my_contacts.contacts = json.dumps(contacts)
         else:
-            # add
+            # add entry
             db_session.add(Contact(username=username,
                                    contacts=json.dumps([parameters["username"], ])
                                    ))
@@ -220,13 +226,23 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : 'incomplete_parameters', "unexpected_behaviour" or "successfully_deleted_contact"
     @staticmethod
     def action_del_contact(db_session, parameters, username=None):
+        # incomplete parameters
         if "username" not in parameters:
             return text("incomplete_parameters")
-        contact = db_session.query(Contact).filter(Contact.username == username).first()
-        if not contact:
+
+        contact_in_db = db_session.query(Contact).filter(Contact.username == username).first()
+
+        # No contact
+        if not contact_in_db:
             return text("unexpected_behaviour")
-        contact.contacts = json.loads(contact.contacts).remove(parameters["username"])
-        db_session.delete(contact)
+
+        # Not in my contacts
+        contacts = json.loads(contact_in_db.contacts)
+        if parameters["username"] not in contacts:
+            return text("unexpected_behaviour")
+
+        # Update contacts
+        contact_in_db.contacts = json.dumps(contacts.remove(parameters["username"]))
         db_session.commit()
         return text("successfully_deleted_contact", parameters["username"])
 
@@ -235,6 +251,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : "unexpected_behaviour", "successfully_added_blacklist" or 'incomplete_parameters'
     @staticmethod
     def action_add_blacklist(db_session, parameters, username=None):
+        # Incomplete parameters
         if "username" not in parameters:
             return text('incomplete_parameters')
 
@@ -258,13 +275,22 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : "successfully_removed_blacklist", "unexpected_behaviour" or 'incomplete_parameters'
     @staticmethod
     def action_del_blacklist(db_session, parameters, username=None):
+        # incomplete parameters
         if "username" not in parameters:
             return TEXT['incomplete_parameters']
+
+        # No contact
         blacklists = db_session.query(Blacklist).filter(Blacklist.username == username).first()
         if not blacklists:
             return text("unexpected_behaviour")
-        blacklists.blocked_users = json.loads(blacklists.blocked_users).remove(parameters["username"])
-        db_session.delete(blacklists)
+
+        # Not in my contacts
+        blocked_users = json.loads(blacklists.blocked_users)
+        if parameters["username"] not in blocked_users:
+            return text("unexpected_behaviour")
+
+        # Update info
+        blacklists.blocked_users = json.dumps(blocked_users.remove(parameters["username"]))
         db_session.commit()
         return text("successfully_removed_blacklist", parameters["username"])
 
@@ -273,15 +299,15 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : TEXT["unexpected_behaviour"] or TEXT["successfully_added_contact"]
     @staticmethod
     def action_get_my_contacts(db_session, parameters, username=None):
-        my_contacts = db_session.query(Contact).filter(Contact.username == username).first()
+        my_contacts_in_db = db_session.query(Contact).filter(Contact.username == username).first()
         contacts_str = ""
-        if not my_contacts or not my_contacts.contacts:
+        if not my_contacts_in_db or not my_contacts_in_db.contacts:
             msg_to_return = {
                 "action": "get-my-contacts",
                 "contacts": "",
             }
         else:
-            contacts_list = json.loads(my_contacts.contacts)
+            contacts_list = json.loads(my_contacts_in_db.contacts)
             for u in contacts_list:
                 contacts_str = contacts_str + u + ','
             msg_to_return = {
@@ -296,32 +322,45 @@ class RequestHandler(socketserver.BaseRequestHandler):
     #                text("message_sent")
     @staticmethod
     def action_send_message(db_session, parameters, username=None):
+        # Incomplete parameters
         if "type" not in parameters or "time" not in parameters or "receiver" not in parameters:
             return TEXT['incomplete_parameters']
+
+        # Wrong type
         if parameters["type"] not in CONFIG.AVAILABLE_MESSAGE_TYPE:
             return TEXT['unexpected_behaviour']
+
+        # Incomplete parameters
         if (parameters["type"] == "text" and "message" not in parameters) or \
                 (parameters["type"] != "text" and ("data" not in parameters or "filename" not in parameters)):
             return TEXT['incomplete_parameters']
-        if db_session.query(Blacklist).filter(Blacklist.username == parameters["receiver"],
-                                              Blacklist.blocked_user == username).first():
+
+        # Check if was blocked
+        receiver_blocking_list = db_session.query(Blacklist)\
+                                           .filter(Blacklist.username == parameters["receiver"]).first()
+        if receiver_blocking_list and username in json.loads(receiver_blocking_list):
             return text("blocked_by_user")
+
+        # Receiver not exists
         if not db_session.query(User).filter(User.username == parameters["receiver"]).first():
             return TEXT['unexpected_behaviour']
+
+        # Generate message
         message = {
             'type': parameters['type'],
             'time': parameters['time'],
             'receiver': parameters['receiver'],
             'sender': username
         }
-
-        # Generate message_id
         message["message_id"] = generate_md5(message["type"] + str(message["time"]) + message["sender"] +
                                              message["receiver"])
+
+        # Message with same id in rare situations
         if db_session.query(Message).filter(Message.message_id == message["message_id"]).first():
             return text("duplicated_message", message["message_id"])
 
         if parameters["type"] == "text":
+            print("text")
             message["message"] = parameters["message"]
             # Save message to database
             db_session.add(Message(message_id=message["message_id"],
