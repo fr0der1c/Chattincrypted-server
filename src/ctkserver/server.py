@@ -19,6 +19,7 @@ from ctkserver.user import log_in, heartbeat
 print("Hello")
 CONFIG = load_config()
 LOGGED_IN_USERS = {}
+DB_SESSION_LOCK = {}
 ORMBaseModel = declarative_base()
 db_engine = create_engine('mysql+pymysql://{}:{}@{}:{}/{}'
                           .format(CONFIG.DB['user'], CONFIG.DB['password'],
@@ -156,8 +157,10 @@ class RequestHandler(socketserver.BaseRequestHandler):
             if "new-signature" in parameters:
                 me.signature = parameters["new-signature"]
             if "new-avatar" in parameters:
-                with open(os.path.join(os.getcwd(), "attachments/avatar/{}".format(username)), 'wb') as f:
-                    f.write(parameters["new-avatar"])
+                if "data" not in parameters:
+                    return text("incomplete_parameters")
+                with open(os.path.join(os.getcwd(), "attachments/avatar/{}.jpg".format(username)), 'wb') as f:
+                    f.write(parameters["data"])
                 me.avatar = True
             db_session.commit()
             return TEXT["successfully-updated-info"]
@@ -264,8 +267,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
             my_blacklist.contacts = json.dumps(blacklist_list)
         else:
             # add
-            db_session.add(Contact(username=username,
-                                   blocked_users=json.dumps([parameters["username"], ])))
+            db_session.add(Blacklist(username=username,
+                                     blocked_users=json.dumps([parameters["username"], ])))
 
         db_session.commit()
         return text("successfully_added_blacklist", parameters["username"])
@@ -343,9 +346,11 @@ class RequestHandler(socketserver.BaseRequestHandler):
             return TEXT['incomplete_parameters']
 
         # Check if was blocked
-        receiver_blocking_list = db_session.query(Blacklist) \
+        receiver_blocking = db_session.query(Blacklist) \
             .filter(Blacklist.username == parameters["receiver"]).first()
-        if receiver_blocking_list and username in json.loads(receiver_blocking_list):
+        if receiver_blocking \
+                and receiver_blocking.blocked_users \
+                and username in json.loads(receiver_blocking.blocked_users):
             return text("blocked_by_user")
 
         # Receiver not exists
@@ -402,6 +407,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
     def action_message_received(db_session, parameters, username=None):
         if "message_id" not in parameters:
             return TEXT['incomplete_parameters']
+
         message = db_session.query(Message).filter(Message.message_id == parameters["message_id"]).first()
         if message.receiver == username:
             # Delete message from database
@@ -448,9 +454,13 @@ class RequestHandler(socketserver.BaseRequestHandler):
             return TEXT["no_such_action"]
 
         if username:
-            return actions[action](db_session, parameters, username=username)
+            DB_SESSION_LOCK[username].acquire()
+            msg_to_return = actions[action](db_session, parameters, username=username)
+            DB_SESSION_LOCK[username].release()
+            return msg_to_return
         elif action == "user-login" or action == "user-register":
-            return actions[action](db_session, parameters)
+            msg_to_return = actions[action](db_session, parameters)
+            return msg_to_return
         else:
             return text("not_login")
 
@@ -459,13 +469,19 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : no return value
     @staticmethod
     def forwardly_sending_message_thread(sock, db_session, current_user):
-        time.sleep(5)
+        while True:
+            if current_user:
+                break
+            time.sleep(1)
+        time.sleep(10)
         flag_to_quit = False
-        print('current user:%s'%current_user)
         while True:
             # If logged in and have message to send
             if current_user:
+                DB_SESSION_LOCK[current_user[0]].acquire()
                 messages = db_session.query(Message).filter(Message.receiver == current_user).all()
+                DB_SESSION_LOCK[current_user[0]].release()
+
                 for each_message in messages:
                     if not each_message.last_send_time \
                             or datetime.datetime.now() - each_message.last_send_time > datetime.timedelta(seconds=10):
@@ -480,8 +496,10 @@ class RequestHandler(socketserver.BaseRequestHandler):
                         if each_message.type == "text":
                             msg_to_send["message"] = each_message.message
                         else:
+                            DB_SESSION_LOCK[current_user[0]].acquire()
                             attachment = db_session.query(Attachment) \
                                 .filter(Attachment.message_id == each_message.message_id).first()
+                            DB_SESSION_LOCK[current_user[0]].release()
                             msg_to_send["filename"] = attachment.filename
                             with open(os.path.join(os.getcwd(),
                                                    "attachments/{}".format(each_message.message_id)), "rb"
@@ -496,10 +514,12 @@ class RequestHandler(socketserver.BaseRequestHandler):
                             break
 
                         # Update last_send_time of message
+                        DB_SESSION_LOCK[current_user[0]].acquire()
                         db_session.query(Message) \
                             .filter(Message.message_id == each_message.message_id) \
                             .update({"last_send_time": datetime.datetime.now()})
                         db_session.commit()
+                        DB_SESSION_LOCK[current_user[0]].release()
             if flag_to_quit:
                 break
             time.sleep(0.5)
@@ -514,10 +534,13 @@ class RequestHandler(socketserver.BaseRequestHandler):
                 recv = recv_msg(sock)
                 if recv:
                     accept_data = msgpack.loads(recv, encoding='utf-8')
-                    if len(accept_data) > 500:
-                        print("[INFO]Accepted data %s...%s" % (accept_data[0:50], accept_data[-50:-1]))
+                    if len(accept_data) > 50:
+                        print("[INFO][%s]Accepted data %s...%s" % (len(accept_data),
+                                                                   accept_data[0:50],
+                                                                   accept_data[-50:-1]))
                     else:
-                        print("[INFO]Accepted data %s." % accept_data)
+                        print("[INFO][%s]Accepted data %s." % (len(accept_data),
+                                                               accept_data))
 
                     if "parameters" not in accept_data:
                         send_data = TEXT['incomplete_parameters']
@@ -537,12 +560,19 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
                     if send_data:
                         send_msg(sock, msgpack.dumps(send_data, use_bin_type=True))
-                        print("send: %s" % msgpack.dumps(send_data, use_bin_type=True))
+                        if len(msgpack.dumps(send_data, use_bin_type=True)) > 500:
+                            print("send: [%s]%s..." % (len(msgpack.dumps(send_data, use_bin_type=True)[0:50]),
+                                                       msgpack.dumps(send_data, use_bin_type=True)[0:50]))
+                        else:
+                            print("send: [%s]%s" % (len(msgpack.dumps(send_data, use_bin_type=True)),
+                                                    msgpack.dumps(send_data, use_bin_type=True)))
 
                     # if successfully log in, save username to variable username
-                    if send_data and "description" in send_data.keys() \
+                    if send_data \
+                            and "description" in send_data.keys() \
                             and send_data["description"] == "Login successfully":
                         current_user.append(accept_data["username"])
+                        DB_SESSION_LOCK[current_user[0]] = threading.Lock()
                         print("[INFO]User {} logged in.".format(current_user[0]))
 
             except msgpack.exceptions.UnpackValueError:
