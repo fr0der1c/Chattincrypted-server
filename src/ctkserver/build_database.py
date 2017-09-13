@@ -55,7 +55,7 @@ class Attachment(ORMBaseModel):
 class Blacklist(ORMBaseModel):
     __tablename__ = 'ctk_blacklists'
     username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
-    blocked_user = Column(String(40), ForeignKey('ctk_users.username'), nullable=False)
+    blocked_users = Column(String(500), ForeignKey('ctk_users.username'), nullable=False)
 
     def __repr__(self):
         return "<Blacklist of `{}`:{}>".format(self.username, self.blocked_user)
@@ -64,26 +64,41 @@ class Blacklist(ORMBaseModel):
 class Contact(ORMBaseModel):
     __tablename__ = 'ctk_user_contacts'
     username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
-    contact = Column(String(40), ForeignKey('ctk_users.username'), nullable=False)
+    contacts = Column(String(500), ForeignKey('ctk_users.username'), nullable=False)
 
     def __repr__(self):
         return "<Contact of `{}`:{}>".format(self.username, self.contact)
-
 
 ORMBaseModel.metadata.create_all(db_engine)
 Session = sessionmaker(bind=db_engine)
 session = Session()
 userinfo = {
-    "mail": "vencent.stevens@gmail.com",
-    "username": "lavender",
-    "nickname": "lavender",
-    "password": "pass_lavender",
-    "public_key": "FINGERPRINT1",
+    "mail": "frederic.t.chan@gmail.com",
+    "username": "frederic",
+    "nickname": "frederic",
+    "password": "password",
+    "signature": "Hello world.",
+    "public_key": "pk",
     "avatar": "1"
 }
+userinfo_2 = {
+    "mail": "test@admirable.one",
+    "username": "test",
+    "nickname": "test",
+    "password": "password",
+    "public_key": "pk",
+    "avatar": "0"
+}
+userinfo_3 = {
+    "mail": "mail@admirable.one",
+    "username": "zbl",
+    "nickname": "zbl123",
+    "password": "password",
+    "public_key": "pk",
+    "avatar": "0"
+}
 session.add(User(**userinfo))
+session.add(User(**userinfo_2))
+session.add(User(**userinfo_3))
 session.commit()
-user = session.query(User).filter(User.username == "lavender1").first()
-
-print(user)
 session.close()

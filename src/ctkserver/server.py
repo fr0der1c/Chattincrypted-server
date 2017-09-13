@@ -6,6 +6,7 @@ import os
 import time
 import threading
 import ssl
+import json
 import datetime
 from sqlalchemy import Column, String, Boolean, Text, TIMESTAMP, ForeignKey, create_engine
 from sqlalchemy.orm import sessionmaker
@@ -23,7 +24,8 @@ db_engine = create_engine('mysql+pymysql://{}:{}@{}:{}/{}'
                           .format(CONFIG.DB['user'], CONFIG.DB['password'],
                                   CONFIG.DB['host'], CONFIG.DB['port'],
                                   CONFIG.DB['database']),
-                          encoding='utf-8'
+                          encoding='utf-8',
+                          pool_size=100
                           )
 DBSession = sessionmaker(bind=db_engine)
 
@@ -68,7 +70,7 @@ class Attachment(ORMBaseModel):
 class Blacklist(ORMBaseModel):
     __tablename__ = 'ctk_blacklists'
     username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
-    blocked_user = Column(String(40), ForeignKey('ctk_users.username'), nullable=False)
+    blocked_users = Column(String(4000), nullable=False)
 
     def __repr__(self):
         return "<Blacklist of `{}`:{}>".format(self.username, self.blocked_user)
@@ -77,7 +79,7 @@ class Blacklist(ORMBaseModel):
 class Contact(ORMBaseModel):
     __tablename__ = 'ctk_user_contacts'
     username = Column(String(40), ForeignKey('ctk_users.username'), primary_key=True)
-    contact = Column(String(40), ForeignKey('ctk_users.username'), nullable=False)
+    contacts = Column(String(4000), nullable=False)
 
     def __repr__(self):
         return "<Contact of `{}`:{}>".format(self.username, self.contact)
@@ -172,17 +174,17 @@ class RequestHandler(socketserver.BaseRequestHandler):
         user = db_session.query(User).filter(User.username == parameters["username"]).first()
         if user:
             msg_to_return = {
+                "action": "get-user-info",
                 "username": user.username,
                 "nickname": user.nickname,
                 "public_key": user.public_key,
-                "avatar": '',
                 "signature": user.signature,
                 "mail": user.mail,
             }
             if user.avatar:
                 msg_to_return["avatar"] = True
                 with open(os.path.join(os.getcwd(),
-                                       "attachments/avatar/{}".format(user.username)), "rb"
+                                       "attachments/avatar/{}.jpg".format(user.username)), "rb"
                           ) as f:
                     msg_to_return["avatar_data"] = f.read()
             else:
@@ -198,11 +200,18 @@ class RequestHandler(socketserver.BaseRequestHandler):
     def action_add_contact(db_session, parameters, username=None):
         if "username" not in parameters:
             return text('incomplete_parameters')
-        if db_session.query(Contact).filter(Contact.username == username,
-                                            Contact.contact == parameters["username"]).all():
-            return text("unexpected_behaviour")
-        db_session.add(Contact(username=username,
-                               contact=parameters["username"]))
+        my_contacts = db_session.query(Contact).filter(Contact.username == username).first()
+        if my_contacts:
+            # change
+            contacts = json.loads(my_contacts.contacts)
+            if parameters["username"] not in contacts:
+                contacts.append(parameters["username"])
+            my_contacts.contacts = json.dumps(contacts)
+        else:
+            # add
+            db_session.add(Contact(username=username,
+                                   contacts=json.dumps([parameters["username"], ])
+                                   ))
         db_session.commit()
         return text("successfully_added_contact", parameters["username"])
 
@@ -213,10 +222,10 @@ class RequestHandler(socketserver.BaseRequestHandler):
     def action_del_contact(db_session, parameters, username=None):
         if "username" not in parameters:
             return text("incomplete_parameters")
-        contact = db_session.query(Contact).filter(Contact.username == username,
-                                                   Contact.contact == parameters["username"]).first()
+        contact = db_session.query(Contact).filter(Contact.username == username).first()
         if not contact:
             return text("unexpected_behaviour")
+        contact.contacts = json.loads(contact.contacts).remove(parameters["username"])
         db_session.delete(contact)
         db_session.commit()
         return text("successfully_deleted_contact", parameters["username"])
@@ -228,11 +237,19 @@ class RequestHandler(socketserver.BaseRequestHandler):
     def action_add_blacklist(db_session, parameters, username=None):
         if "username" not in parameters:
             return text('incomplete_parameters')
-        if db_session.query(Blacklist).filter(Blacklist.username == username,
-                                              Blacklist.blocked_user == parameters["username"]).all():
-            return text("unexpected_behaviour")
-        db_session.add(Blacklist(username=username,
-                                 blocked_user=parameters["username"]))
+
+        my_blacklist = db_session.query(Blacklist).filter(Blacklist.username == username).first()
+        if my_blacklist:
+            # change
+            blacklist_list = json.loads(my_blacklist.contacts)
+            if parameters["username"] not in blacklist_list:
+                blacklist_list.append(parameters["username"])
+            my_blacklist.contacts = json.dumps(blacklist_list)
+        else:
+            # add
+            db_session.add(Contact(username=username,
+                                   blocked_users=json.dumps([parameters["username"], ])))
+
         db_session.commit()
         return text("successfully_added_blacklist", parameters["username"])
 
@@ -243,11 +260,11 @@ class RequestHandler(socketserver.BaseRequestHandler):
     def action_del_blacklist(db_session, parameters, username=None):
         if "username" not in parameters:
             return TEXT['incomplete_parameters']
-        blacklisted = db_session.query(Blacklist).filter(Blacklist.username == username,
-                                                         Blacklist.blocked_user == parameters["username"]).first()
-        if not blacklisted:
-            return TEXT["unexpected_behaviour"]
-        db_session.delete(blacklisted)
+        blacklists = db_session.query(Blacklist).filter(Blacklist.username == username).first()
+        if not blacklists:
+            return text("unexpected_behaviour")
+        blacklists.blocked_users = json.loads(blacklists.blocked_users).remove(parameters["username"])
+        db_session.delete(blacklists)
         db_session.commit()
         return text("successfully_removed_blacklist", parameters["username"])
 
@@ -256,14 +273,21 @@ class RequestHandler(socketserver.BaseRequestHandler):
     # Return value : TEXT["unexpected_behaviour"] or TEXT["successfully_added_contact"]
     @staticmethod
     def action_get_my_contacts(db_session, parameters, username=None):
-        my_contacts = db_session.query(Contact).filter(Contact.username == username).all()
+        my_contacts = db_session.query(Contact).filter(Contact.username == username).first()
         contacts_str = ""
-        for u in my_contacts:
-            contacts_str = contacts_str + u.username + ','
-        msg_to_return = {
-            "action": "get-my-contacts",
-            "contacts": contacts_str,
-        }
+        if not my_contacts or not my_contacts.contacts:
+            msg_to_return = {
+                "action": "get-my-contacts",
+                "contacts": "",
+            }
+        else:
+            contacts_list = json.loads(my_contacts.contacts)
+            for u in contacts_list:
+                contacts_str = contacts_str + u + ','
+            msg_to_return = {
+                "action": "get-my-contacts",
+                "contacts": contacts_str,
+            }
         return msg_to_return
 
     # Function name: action_send_message
@@ -448,10 +472,6 @@ class RequestHandler(socketserver.BaseRequestHandler):
                     else:
                         print("[INFO]Accepted data %s." % accept_data)
 
-                    # If logged in, tell him who he is
-                    if current_user:
-                        send_msg(sock, msgpack.dumps("This is %s" % current_user[0]))
-
                     if "parameters" not in accept_data:
                         send_data = TEXT['incomplete_parameters']
 
@@ -472,7 +492,8 @@ class RequestHandler(socketserver.BaseRequestHandler):
                         send_msg(sock, msgpack.dumps(send_data, use_bin_type=True))
 
                     # if successfully log in, save username to variable username
-                    if send_data["description"] == "Login successfully":
+                    if send_data and "description" in send_data.keys() \
+                            and send_data["description"] == "Login successfully":
                         current_user.append(accept_data["username"])
                         print("[INFO]User {} logged in.".format(current_user[0]))
 

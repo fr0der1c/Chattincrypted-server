@@ -10,9 +10,6 @@ PORT = CONFIG.REMOTE_PORT
 BUFSIZE = CONFIG.BUFSIZE
 ADDR = (HOST, PORT)
 data = msgpack.dumps(CONFIG.data_login_lavender)
-print(data)
-print([c for c in data])
-print(len(data))
 tcpCliSock = socket(AF_INET, SOCK_STREAM)
 tcpCliSock.connect(ADDR)
 
