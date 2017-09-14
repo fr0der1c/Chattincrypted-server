@@ -1,5 +1,5 @@
 # Chattincrypted server
-Chattincrypted is an end-to-end Chat Java desktop application using the OpenPGP encryption that every privacy lover likes. This repository is the server part written in python.
+Chattincrypted is an end-to-end chat Java desktop application using the OpenPGP encryption. This repository is the server part written in python.
 
 ![status](https://img.shields.io/badge/status-development-yellow.svg)
 ![python version](https://img.shields.io/badge/python-3.6-blue.svg)
