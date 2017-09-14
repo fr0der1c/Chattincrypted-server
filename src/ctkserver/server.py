@@ -261,7 +261,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
         my_blacklist = db_session.query(Blacklist).filter(Blacklist.username == username).first()
         if my_blacklist:
             # change
-            blacklist_list = json.loads(my_blacklist.contacts)
+            blacklist_list = json.loads(my_blacklist.blocked_users)
             if parameters["username"] not in blacklist_list:
                 blacklist_list.append(parameters["username"])
             my_blacklist.contacts = json.dumps(blacklist_list)
